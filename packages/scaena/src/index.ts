@@ -12,3 +12,5 @@ export { TidalDrift } from './backdrops/tidal-drift';
 export type { TidalDriftProps } from './backdrops/tidal-drift';
 export { WireMesa } from './backdrops/wire-mesa';
 export type { WireMesaProps } from './backdrops/wire-mesa';
+export { FlowField } from './backdrops/flow-field';
+export type { FlowFieldProps } from './backdrops/flow-field';

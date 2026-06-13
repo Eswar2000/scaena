@@ -168,6 +168,31 @@ const BACKDROPS = [
       optionSelected: 'text-cyan-200',
     },
   },
+  {
+    name: 'flow-field',
+    label: 'flow-field',
+    vibe: 'Inky tendrils curling through a deep-navy void — thousands of particles drifting on a living vector field.',
+    text: {
+      eyebrow: 'text-violet-100/80',
+      headlineGradient: 'from-white to-violet-100/70',
+      body: 'text-violet-50/85',
+      label: 'text-violet-100/55',
+      // medium shadow — dark void with bright snaking trails; text needs a soft lift
+      shadow:
+        '[filter:drop-shadow(0_2px_10px_rgba(2,4,12,0.7))_drop-shadow(0_1px_2px_rgba(2,4,12,0.55))]',
+    },
+    chip: {
+      // violet-tinted glass — sits between the cyan and pink trails
+      surface:
+        'border-violet-200/25 bg-slate-950/60 text-violet-50/95 hover:border-violet-200/40 focus:border-violet-200/50 focus:ring-violet-200/25',
+      accent: 'text-violet-200/85',
+      popup:
+        'border-violet-200/25 bg-slate-950/90 text-violet-50/95 shadow-[0_12px_40px_-10px_rgba(20,8,40,0.75)] ring-1 ring-violet-200/15',
+      option: 'text-violet-50/90 hover:bg-violet-300/10',
+      optionActive: 'bg-violet-300/15 text-white',
+      optionSelected: 'text-violet-200',
+    },
+  },
 ] as const satisfies readonly BackdropEntry[];
 
 const DEFAULT_BACKDROP: BackdropName = 'kyoto-petals';

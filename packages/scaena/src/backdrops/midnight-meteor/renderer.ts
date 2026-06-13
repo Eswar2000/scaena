@@ -60,8 +60,12 @@ interface Meteor {
   lifetime: number;
 }
 
-const SKY_TOP = '#020310';
-const SKY_BOTTOM = '#070a1c';
+// Deep indigo sky gradient — the nebulae brighten this additively, so the
+// sky itself needs enough violet/blue chroma to read as "deep space" even
+// in regions no nebula sits over (top edge, corners). Previously these were
+// near-black (#020310 / #070a1c) which produced a hard black band at the top.
+const SKY_TOP = '#0a0824';
+const SKY_BOTTOM = '#0d0b2e';
 
 // Nebula palette — deep, low-saturation tones that read as "atmospheric depth"
 const NEBULA_COLORS = ['62, 38, 110', '32, 60, 110', '110, 38, 80', '40, 80, 130', '80, 30, 90'];
@@ -388,7 +392,18 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     ctx.fillRect(0, 0, width, height);
   };
 
-  const drawNebulas = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+  const drawNebulas = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    bleed = 0,
+  ) => {
+    // `bleed` lets the drift cache extend the radial gradient fill into its
+    // padding ring. Without it, the cache's outer padding rows stay fully
+    // transparent, and when the drift offset shifts the cache by even a few
+    // pixels you see a hard band at the screen edge where nebula coverage
+    // abruptly starts. Passing `bleed = NEBULA_DRIFT_PADDING` from the bake
+    // ensures the gradients paint across the entire cache canvas.
     ctx.save();
     ctx.globalCompositeOperation = 'screen'; // brighten the dark sky → soft cloud effect
     for (const n of nebulas) {
@@ -399,7 +414,7 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
       grad.addColorStop(0.5, `rgba(${n.color}, ${n.alpha * 0.4})`);
       grad.addColorStop(1, `rgba(${n.color}, 0)`);
       ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(-bleed, -bleed, width + bleed * 2, height + bleed * 2);
     }
     ctx.restore();
   };
@@ -498,16 +513,21 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
   const drawVignette = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const cx = width / 2;
     const cy = height / 2;
+    // Tint the vignette toward a deep indigo (same hue family as the nebulae)
+    // rather than pure black, so corners read as "more deep sky" instead of a
+    // hard black halo that fights the violet/teal nebula tones. Inner radius
+    // pushed outward so the darkening only takes effect in the true corners.
     const vignette = ctx.createRadialGradient(
       cx,
       cy,
-      Math.min(width, height) * 0.35,
+      Math.min(width, height) * 0.55,
       cx,
       cy,
-      Math.max(width, height) * 0.8,
+      Math.max(width, height) * 0.85,
     );
-    vignette.addColorStop(0, 'rgba(0,0,0,0)');
-    vignette.addColorStop(1, 'rgba(0,0,0,0.7)');
+    vignette.addColorStop(0, 'rgba(10, 8, 26, 0)');
+    vignette.addColorStop(0.6, 'rgba(10, 8, 26, 0.15)');
+    vignette.addColorStop(1, 'rgba(8, 6, 22, 0.55)');
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, width, height);
   };
@@ -804,7 +824,10 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     // Translate so (0,0) in the helper functions still lines up with the
     // top-left of the *visible* canvas region, leaving the padding as bleed.
     cctx.setTransform(dpr, 0, 0, dpr, NEBULA_DRIFT_PADDING * dpr, NEBULA_DRIFT_PADDING * dpr);
-    drawNebulas(cctx, width, height);
+    // Bleed the nebula gradients across the full cache including the padding
+    // ring — otherwise the drift offset can expose transparent rows at the
+    // screen edge as a hard band where nebula coverage abruptly starts.
+    drawNebulas(cctx, width, height, NEBULA_DRIFT_PADDING);
     drawMilkyWayGlow(cctx, width, height);
     driftCache = cache;
   };
