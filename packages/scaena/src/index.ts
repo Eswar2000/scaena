@@ -8,3 +8,5 @@ export { KyotoPetals } from './backdrops/kyoto-petals';
 export type { KyotoPetalsProps } from './backdrops/kyoto-petals';
 export { Aurora } from './backdrops/aurora';
 export type { AuroraProps } from './backdrops/aurora';
+export { DeepOcean } from './backdrops/deep-ocean';
+export type { DeepOceanProps } from './backdrops/deep-ocean';

@@ -118,6 +118,31 @@ const BACKDROPS = [
       optionSelected: 'text-emerald-200',
     },
   },
+  {
+    name: 'deep-ocean',
+    label: 'deep-ocean',
+    vibe: 'Open ocean from above — slow parallel swells rolling beneath a scatter of sun glints.',
+    text: {
+      eyebrow: 'text-white/75',
+      headlineGradient: 'from-white to-cyan-100/70',
+      body: 'text-white/80',
+      label: 'text-white/55',
+      // medium shadow — dark background with bright moving glints; text needs a soft halo
+      shadow:
+        '[filter:drop-shadow(0_2px_10px_rgba(0,0,0,0.55))_drop-shadow(0_1px_2px_rgba(0,0,0,0.45))]',
+    },
+    chip: {
+      // teal-tinted glass — calm, restrained, matches the open-Atlantic palette
+      surface:
+        'border-cyan-200/20 bg-slate-950/55 text-cyan-50/95 hover:border-cyan-200/35 focus:border-cyan-200/45 focus:ring-cyan-200/25',
+      accent: 'text-cyan-200/80',
+      popup:
+        'border-cyan-200/20 bg-slate-950/90 text-cyan-50/95 shadow-[0_12px_40px_-10px_rgba(0,20,40,0.7)] ring-1 ring-cyan-200/10',
+      option: 'text-cyan-50/90 hover:bg-cyan-300/10',
+      optionActive: 'bg-cyan-300/15 text-white',
+      optionSelected: 'text-cyan-200',
+    },
+  },
 ] as const satisfies readonly BackdropEntry[];const DEFAULT_BACKDROP: BackdropName = 'kyoto-petals';
 
 export default function HomePage() {
