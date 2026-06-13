@@ -7,20 +7,22 @@ export default function HomePage() {
     <main>
       <section className="relative isolate flex h-screen w-full items-center justify-center overflow-hidden">
         <Backdrop name="kyoto-petals" />
-        <div className="relative z-10 mx-auto max-w-3xl px-6 text-center">
-          <p className="mb-4 text-xs uppercase tracking-[0.3em] text-white/50">
-            scaena · v0.1
-          </p>
-          <h1 className="bg-gradient-to-b from-white to-white/60 bg-clip-text pb-2 text-5xl font-semibold leading-[1.15] text-transparent sm:text-7xl">
-            Lucide for backgrounds.
-          </h1>
-          <p className="mx-auto mt-6 max-w-xl text-base text-white/70 sm:text-lg">
-            Drop-in scenic, animated backdrops for your hero sections. One line of code,
-            beautiful out of the box.
-          </p>
-          <pre className="mx-auto mt-10 inline-block rounded-lg border border-white/10 bg-black/40 px-5 py-3 text-left text-sm text-white/80 backdrop-blur">
-            <code>{'<Backdrop name="midnight-meteor" />'}</code>
-          </pre>
+        <div className="relative z-10 mx-auto max-w-3xl px-6">
+          <div className="rounded-2xl border border-white/10 bg-black/15 px-8 py-10 text-center shadow-2xl backdrop-blur-md sm:px-12 sm:py-14">
+            <p className="mb-4 text-xs uppercase tracking-[0.3em] text-white/60">
+              scaena · v0.1
+            </p>
+            <h1 className="bg-gradient-to-b from-white to-white/60 bg-clip-text pb-3 text-5xl font-semibold leading-[1.25] text-transparent sm:text-7xl sm:leading-[1.2]">
+              Lucide for backgrounds.
+            </h1>
+            <p className="mx-auto mt-6 max-w-xl text-base text-white/70 sm:text-lg">
+              Drop-in scenic, animated backdrops for your hero sections. One line of code,
+              beautiful out of the box.
+            </p>
+            <pre className="mx-auto mt-10 inline-block rounded-lg border border-white/10 bg-black/40 px-5 py-3 text-left text-sm text-white/80 backdrop-blur">
+              <code>{'<Backdrop name="midnight-meteor" />'}</code>
+            </pre>
+          </div>
         </div>
       </section>
 

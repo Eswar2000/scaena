@@ -1,17 +1,19 @@
-# backdrops
+# scaena
 
-> Lucide for backgrounds. Drop-in scenic, animated React backdrops.
+> Drop-in scenic, animated React backdrops for hero sections. One line of code, beautiful out of the box.
+>
+> *Latin for “stage / scene” — pronounced **SKAY-nuh**.*
 
 ## Install
 
 ```bash
-npm install backdrops
+npm install scaena
 ```
 
 ## Use
 
 ```tsx
-import { Backdrop } from 'backdrops';
+import { Backdrop } from 'scaena';
 
 export default function Hero() {
   return (
@@ -30,6 +32,7 @@ The `<Backdrop />` fills its nearest positioned ancestor. Wrap it in a `position
 | name | vibe |
 | --- | --- |
 | `midnight-meteor` | A still, dark night sky with softly twinkling stars and occasional meteors |
+| `kyoto-petals` | Cherry blossom petals drifting gently on a soft spring breeze |
 
 More on the way.
 
@@ -44,6 +47,7 @@ More on the way.
 
 ## Built-in respect
 
-- Honors `prefers-reduced-motion` automatically.
+- Honors `prefers-reduced-motion` automatically — renders a beautiful static frame.
 - Pauses rendering when the tab is hidden.
 - Uses `devicePixelRatio` for crisp rendering on retina screens.
+- Automatically reduces particle counts on small screens.
