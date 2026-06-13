@@ -282,6 +282,7 @@ function BackdropPicker({
     Math.max(0, BACKDROPS.findIndex((b) => b.name === value)),
   );
   const rootRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const listId = useId();
 
   const selected = BACKDROPS.find((b) => b.name === value) ?? BACKDROPS[0];
@@ -301,6 +302,14 @@ function BackdropPicker({
     document.addEventListener('mousedown', onDocDown);
     return () => document.removeEventListener('mousedown', onDocDown);
   }, [open]);
+
+  // Keep the highlighted option visible inside the scrollable popup as the
+  // user moves through the list with the keyboard.
+  useEffect(() => {
+    if (!open) return;
+    const li = listRef.current?.children[activeIdx] as HTMLElement | undefined;
+    li?.scrollIntoView({ block: 'nearest' });
+  }, [open, activeIdx]);
 
   const commit = (idx: number) => {
     const next = BACKDROPS[idx];
@@ -366,10 +375,11 @@ function BackdropPicker({
 
       {open && (
         <ul
+          ref={listRef}
           id={listId}
           role="listbox"
           tabIndex={-1}
-          className={`absolute left-1/2 z-20 mt-2 w-56 -translate-x-1/2 overflow-hidden rounded-lg border p-1 backdrop-blur ${chip.popup}`}
+          className={`themed-scrollbar absolute left-1/2 z-20 mt-2 w-56 max-h-[8.25rem] -translate-x-1/2 overflow-y-auto overscroll-contain rounded-lg border p-1 backdrop-blur ${chip.popup}`}
         >
           {BACKDROPS.map((b, i) => {
             const isSelected = b.name === value;

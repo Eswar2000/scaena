@@ -13,3 +13,35 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* Slim, theme-neutral scrollbar for floating popups (e.g. backdrop picker).
+   All themed popups have a dark translucent surface, so a soft white thumb
+   reads well on every theme without needing per-theme overrides. */
+.themed-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.themed-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.themed-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.themed-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+}
+.themed-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+.themed-scrollbar::-webkit-scrollbar-button {
+  /* hide the up/down arrow buttons that some platforms (notably Windows
+     Chromium) render at the ends of the scrollbar track */
+  display: none;
+  width: 0;
+  height: 0;
+}
+.themed-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
