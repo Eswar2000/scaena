@@ -35,6 +35,12 @@ interface Star {
   hero: boolean;
   /** True for ~1% — get a 4-point diffraction spike */
   flare: boolean;
+  /** Independent slow sine phases used for hero-star sub-pixel parallax drift.
+   *  Cheap to carry on every star; only consumed by the hero per-frame pass. */
+  driftPhaseX: number;
+  driftPhaseY: number;
+  driftSpeedX: number;
+  driftSpeedY: number;
 }
 
 interface TrailPoint {
@@ -65,6 +71,20 @@ const TRAIL_MAX_POINTS = 64;
 const TRAIL_SAMPLE_INTERVAL = 1 / 120; // sample more often → smoother ribbon at any framerate
 const SPAWN_MARGIN = 80;
 const HALO_SPRITE_SIZE = 64;
+
+/* ── Ambient-motion tuning ──
+ * The midnight-meteor sky used to be ONE giant pre-baked bitmap blitted unchanged
+ * every frame, so the canvas felt completely static between meteor crossings.
+ * Three very cheap motion sources now layer on top of the bake:
+ *   1. The nebula + milky-way glow plate drifts on a slow Lissajous (≤ ±NEBULA_DRIFT_AMP px).
+ *   2. Hero stars float on independent sub-pixel sines (≤ ±HERO_PARALLAX_AMP px).
+ *   3. A larger pool of bright stars twinkles per-frame.
+ * Padding on the drift cache prevents the screen blend from ever exposing transparent
+ * edges as the bitmap translates. */
+const NEBULA_DRIFT_PADDING = 36; // px of bleed on each side of the drift cache
+const NEBULA_DRIFT_AMP = 14; // peak drift amplitude in CSS px (< padding, with headroom)
+const HERO_PARALLAX_AMP = 1.3; // peak hero-star sub-pixel drift (CSS px)
+const TWINKLE_POOL_SIZE = 80; // brightest non-hero, non-flare stars that twinkle per-frame
 
 /* ───────────────────────── helpers ───────────────────────── */
 
@@ -197,12 +217,29 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
   let timeToNextMeteor = 1.0 + rand() * 1.5;
   let timeSinceTrailSample = 0;
 
-  // Offscreen canvas holding the pre-rendered static layers (sky, nebulas, milky way,
-  // hero star outer bloom, vignette). Re-baked only on setup/resize — not every frame.
-  // This is the single biggest perf win in the renderer: instead of recreating ~6 radial
-  // gradients + filling rect-sized regions every frame, we just blit one bitmap.
-  let staticCache: HTMLCanvasElement | null = null;
-  let staticCacheDpr = 1;
+  // Offscreen caches, re-baked only on setup/resize.
+  //
+  // The renderer used to bake EVERYTHING (sky + nebulas + milky way + stars +
+  // vignette) into a single bitmap that was blitted unchanged every frame. That
+  // gave great fluidity but made the backdrop feel completely static. The bake
+  // is now split into three layers so a couple of cheap motion effects can
+  // animate without sacrificing the perf win:
+  //
+  //   backplateCache  — sky gradient + the WHOLE non-hero starfield. Static.
+  //   driftCache      — nebulas + milky-way glow on a TRANSPARENT, oversized
+  //                     canvas. Blitted with `screen` blend at a slow Lissajous
+  //                     offset every frame, simulating drifting cosmic dust.
+  //   vignetteCache   — corner-darken overlay. Drawn last (over hero stars +
+  //                     twinkle) but BEFORE meteors, matching the original z-order.
+  //
+  // Hero stars are no longer baked — they're drawn live each frame with sub-pixel
+  // parallax so the brightest points of light "float" against the static field.
+  let backplateCache: HTMLCanvasElement | null = null;
+  let driftCache: HTMLCanvasElement | null = null;
+  let vignetteCache: HTMLCanvasElement | null = null;
+  let cacheDpr = 1;
+  let cacheWidth = 0;
+  let cacheHeight = 0;
 
   // Milky way band — defined as a line from (mwX1, mwY1) → (mwX2, mwY2) in
   // normalized [0..1] space, with a thickness in pixels resolved per frame.
@@ -316,20 +353,29 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
         warmth,
         hero,
         flare,
+        // Hero parallax uses two very slow independent sines (period ~15–40 s) so no two
+        // hero stars drift in lock-step — the cumulative effect reads as "the camera is
+        // breathing" rather than "the whole star layer is sliding".
+        driftPhaseX: srand() * Math.PI * 2,
+        driftPhaseY: srand() * Math.PI * 2,
+        driftSpeedX: 0.12 + srand() * 0.18,
+        driftSpeedY: 0.10 + srand() * 0.18,
       });
     }
     // Sort so dim stars draw first, hero stars on top (avoids halo-cutoff artifacts)
     next.sort((a, b) => (a.hero === b.hero ? a.coreRadius - b.coreRadius : a.hero ? 1 : -1));
     stars = next;
 
-    // Pick the brightest ~24 stars for the per-frame twinkle overlay. Flare stars
-    // already draw a static diffraction cross, so they read as "sparkling" without
-    // animation — skip them to avoid double-emphasis. Sorting a copy keeps the
-    // bake order (above) untouched.
+    // Pick a generous slice of the brightest non-hero, non-flare stars for the
+    // per-frame twinkle overlay. Heroes drive their own per-frame draw now (with
+    // intrinsic alpha modulation), and flare stars already read as "sparkling"
+    // thanks to their diffraction cross — so excluding both avoids double-emphasis.
+    // Cost: ~TWINKLE_POOL_SIZE radial fills per frame — still well under a single
+    // meteor's ribbon-build cost.
     twinkleStars = [...next]
-      .filter((s) => !s.flare)
+      .filter((s) => !s.flare && !s.hero)
       .sort((a, b) => b.coreRadius * b.baseAlpha - a.coreRadius * a.baseAlpha)
-      .slice(0, 24);
+      .slice(0, TWINKLE_POOL_SIZE);
   };
 
   /* ──────── draw passes ──────── */
@@ -391,10 +437,10 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     width: number,
     height: number,
   ) => {
-    // Stars draw ONCE into the static cache — no per-frame star work at all.
-    // Twinkle was barely perceptible on a backdrop the user is reading text over,
-    // and removing the per-frame star loop is the single biggest fluidity win:
-    // every frame goes from ~640 ops down to 1 drawImage + a handful for meteors.
+    // Bakes only the NON-HERO starfield into the destination ctx (typically the
+    // backplate cache). Hero stars are excluded because they're drawn live each
+    // frame with sub-pixel parallax — see `drawHeroStarsLive`. Without skipping
+    // heroes here we'd render them twice (once static, once moving).
     const spriteCool = haloSpriteCool;
     const spriteWarm = haloSpriteWarm;
 
@@ -402,6 +448,7 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const star of stars) {
+      if (star.hero) continue;
       const px = star.x * width;
       const py = star.y * height;
       const haloRadius = star.coreRadius * star.haloScale;
@@ -438,6 +485,7 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     // ── Pass B: crisp bright cores
     ctx.save();
     for (const star of stars) {
+      if (star.hero) continue;
       const tint = lerpRgb(STAR_COOL, STAR_WARM, star.warmth);
       ctx.fillStyle = `rgba(${tint}, ${Math.min(1, star.baseAlpha * 1.1)})`;
       ctx.beginPath();
@@ -465,11 +513,14 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
   };
 
   /**
-   * Per-frame twinkle overlay. Loops only the ~24 brightest stars and adds a
-   * small additive halo whose alpha is modulated by sin(time). Because the
-   * underlying star is already baked at full intensity, we can only ever
-   * *brighten* it — which happens to match how stars twinkle to the naked eye
-   * (they appear to flicker brighter, not dim). Cost: ~24 arcs per frame.
+   * Per-frame twinkle overlay. Loops the brightest `TWINKLE_POOL_SIZE` non-hero,
+   * non-flare stars and adds an additive halo whose alpha is modulated by
+   * sin(time). Because the underlying star is already baked at full intensity
+   * we can only ever *brighten* it — which happens to match how stars actually
+   * twinkle to the naked eye (they appear to flicker brighter, not dim).
+   *
+   * Cost: ~TWINKLE_POOL_SIZE radial-gradient fills per frame, ~80 by default.
+   * That's still an order of magnitude cheaper than a single meteor's ribbon.
    */
   const drawTwinkle = (
     ctx: CanvasRenderingContext2D,
@@ -482,19 +533,115 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     ctx.globalCompositeOperation = 'lighter';
     for (const star of twinkleStars) {
       const wave = 0.5 + 0.5 * Math.sin(time * star.twinkleSpeed + star.twinklePhase);
-      // Soft ease so dim phases are flatter (less "blinking", more "breathing").
-      const intensity = wave * wave * 0.55;
+      // Quartic ease keeps the pool mostly quiet but lets occasional stars flare hard,
+      // so the sky reads as "a few stars happen to be twinkling RIGHT NOW" rather than
+      // "every bright star is wobbling on a metronome". The 0.95 cap is the visible
+      // brightness boost: previously 0.55 (barely perceptible), now strong enough to
+      // notice without becoming distracting.
+      const intensity = wave * wave * wave * wave * 0.95;
       if (intensity < 0.01) continue;
       const tint = lerpRgb(STAR_COOL, STAR_WARM, star.warmth);
       const px = star.x * width;
       const py = star.y * height;
-      const radius = star.coreRadius * (star.hero ? 2.2 : 1.6);
+      const radius = star.coreRadius * 1.9;
       const grad = ctx.createRadialGradient(px, py, 0, px, py, radius);
-      grad.addColorStop(0, `rgba(${tint}, ${star.baseAlpha * intensity})`);
+      grad.addColorStop(0, `rgba(${tint}, ${Math.min(1, star.baseAlpha * intensity)})`);
       grad.addColorStop(1, `rgba(${tint}, 0)`);
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  };
+
+  /**
+   * Per-frame hero-star pass. Each hero gets:
+   *   1. A slow sub-pixel parallax offset on two independent sines — makes the
+   *      brightest points of the sky feel like they're floating, even though the
+   *      drift is < HERO_PARALLAX_AMP px.
+   *   2. The outer bloom + inner halo + crisp core stack that the bake used to
+   *      handle, now drawn at the parallaxed position.
+   *   3. Intrinsic twinkle on the core alpha (hero stars don't go through the
+   *      drawTwinkle pool — they twinkle here as part of their normal draw).
+   *   4. If `flare`, an animated diffraction cross whose alpha and tint pulse
+   *      slowly warm ↔ cool, so the brightest stars in the sky never feel inert.
+   *
+   * Hero stars are typically ~10 per scene, so this pass costs roughly:
+   *   ~10 radial gradients (outer bloom) + 10 sprite blits (halo) + 10 fills (core)
+   *   + a couple of strokes for flares. Trivial on top of meteor work.
+   */
+  const drawHeroStarsLive = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    time: number,
+  ) => {
+    const spriteCool = haloSpriteCool;
+    const spriteWarm = haloSpriteWarm;
+
+    // ── Pass A: outer bloom + inner halo (additive)
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const star of stars) {
+      if (!star.hero) continue;
+
+      const dx = Math.sin(time * star.driftSpeedX + star.driftPhaseX) * HERO_PARALLAX_AMP;
+      const dy = Math.sin(time * star.driftSpeedY + star.driftPhaseY) * HERO_PARALLAX_AMP;
+      const px = star.x * width + dx;
+      const py = star.y * height + dy;
+      const tint = lerpRgb(STAR_COOL, STAR_WARM, star.warmth);
+
+      // Outer soft bloom (was previously baked) — follows the parallax.
+      const bloomRadius = star.coreRadius * star.haloScale * 2.4;
+      const bloom = ctx.createRadialGradient(px, py, 0, px, py, bloomRadius);
+      bloom.addColorStop(0, `rgba(${tint}, ${star.baseAlpha * 0.25})`);
+      bloom.addColorStop(1, `rgba(${tint}, 0)`);
+      ctx.fillStyle = bloom;
+      ctx.beginPath();
+      ctx.arc(px, py, bloomRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner halo via the cached sprite.
+      const haloRadius = star.coreRadius * star.haloScale;
+      const sprite = star.warmth > 0.5 ? spriteWarm : spriteCool;
+      if (sprite) {
+        ctx.globalAlpha = Math.min(1, star.baseAlpha * 0.85);
+        ctx.drawImage(sprite, px - haloRadius, py - haloRadius, haloRadius * 2, haloRadius * 2);
+        ctx.globalAlpha = 1;
+      }
+
+      // Flare cross with a slow warm↔cool pulse on alpha + tint.
+      if (star.flare) {
+        const pulse = 0.5 + 0.5 * Math.sin(time * 0.9 + star.twinklePhase);
+        const flareLen = haloRadius * 2.2;
+        const warmShift = Math.min(1, Math.max(0, star.warmth + (pulse - 0.5) * 0.6));
+        const flareTint = lerpRgb(STAR_COOL, STAR_WARM, warmShift);
+        ctx.strokeStyle = `rgba(${flareTint}, ${star.baseAlpha * (0.32 + 0.28 * pulse)})`;
+        ctx.lineWidth = 0.7;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(px - flareLen, py);
+        ctx.lineTo(px + flareLen, py);
+        ctx.moveTo(px, py - flareLen);
+        ctx.lineTo(px, py + flareLen);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // ── Pass B: crisp cores with intrinsic twinkle on alpha (source-over)
+    ctx.save();
+    for (const star of stars) {
+      if (!star.hero) continue;
+      const dx = Math.sin(time * star.driftSpeedX + star.driftPhaseX) * HERO_PARALLAX_AMP;
+      const dy = Math.sin(time * star.driftSpeedY + star.driftPhaseY) * HERO_PARALLAX_AMP;
+      const wave = 0.5 + 0.5 * Math.sin(time * star.twinkleSpeed + star.twinklePhase);
+      const coreAlpha = Math.min(1, star.baseAlpha * (0.85 + 0.25 * wave));
+      const tint = lerpRgb(STAR_COOL, STAR_WARM, star.warmth);
+      ctx.fillStyle = `rgba(${tint}, ${coreAlpha})`;
+      ctx.beginPath();
+      ctx.arc(star.x * width + dx, star.y * height + dy, star.coreRadius, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
@@ -618,55 +765,75 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     ctx.restore();
   };
 
-  /* ──────── static layer cache ──────── */
+  /* ──────── static layer caches ──────── */
 
-  // Re-bake the offscreen "backplate" containing everything that never changes:
-  // sky gradient, nebula clouds, milky way glow, the full starfield, vignette.
-  //
-  // Per-frame cost after baking is 1 drawImage + meteor work — that's it.
-  // No per-frame star loops, no per-frame gradient creation. This restores
-  // the v1-level fluidity of meteor motion while keeping all v2 visual richness.
-  const bakeStaticCache = (width: number, height: number, dpr: number) => {
+  /** Build the **backplate** cache: sky gradient + the entire NON-HERO starfield.
+   *  This is the bulk of the pixel cost — and it never changes, so the per-frame
+   *  cost stays at one drawImage. Hero stars + vignette are intentionally absent;
+   *  they're handled separately so animation can layer on top correctly. */
+  const bakeBackplate = (width: number, height: number, dpr: number) => {
     const cache = document.createElement('canvas');
     cache.width = Math.max(1, Math.floor(width * dpr));
     cache.height = Math.max(1, Math.floor(height * dpr));
     const cctx = cache.getContext('2d');
     if (!cctx) {
-      staticCache = null;
+      backplateCache = null;
       return;
     }
     cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
     drawSky(cctx, width, height);
+    drawStars(cctx, width, height);
+    backplateCache = cache;
+  };
+
+  /** Build the **drift** cache: nebulas + milky-way glow on a TRANSPARENT canvas,
+   *  oversized by `NEBULA_DRIFT_PADDING` on every side so the bitmap can translate
+   *  freely each frame without ever exposing a transparent edge inside the visible
+   *  canvas. Drawn with `screen` blend over the backplate every frame at a slow
+   *  Lissajous offset — that's the "drifting cosmic dust" effect. */
+  const bakeDriftLayer = (width: number, height: number, dpr: number) => {
+    const padded = NEBULA_DRIFT_PADDING * 2;
+    const cache = document.createElement('canvas');
+    cache.width = Math.max(1, Math.floor((width + padded) * dpr));
+    cache.height = Math.max(1, Math.floor((height + padded) * dpr));
+    const cctx = cache.getContext('2d');
+    if (!cctx) {
+      driftCache = null;
+      return;
+    }
+    // Translate so (0,0) in the helper functions still lines up with the
+    // top-left of the *visible* canvas region, leaving the padding as bleed.
+    cctx.setTransform(dpr, 0, 0, dpr, NEBULA_DRIFT_PADDING * dpr, NEBULA_DRIFT_PADDING * dpr);
     drawNebulas(cctx, width, height);
     drawMilkyWayGlow(cctx, width, height);
+    driftCache = cache;
+  };
 
-    // Hero star OUTER bloom (large soft glow under the regular halo)
-    cctx.save();
-    cctx.globalCompositeOperation = 'lighter';
-    for (const star of stars) {
-      if (!star.hero) continue;
-      const px = star.x * width;
-      const py = star.y * height;
-      const bloomRadius = star.coreRadius * star.haloScale * 2.4;
-      const tint = lerpRgb(STAR_COOL, STAR_WARM, star.warmth);
-      const bloom = cctx.createRadialGradient(px, py, 0, px, py, bloomRadius);
-      bloom.addColorStop(0, `rgba(${tint}, ${star.baseAlpha * 0.25})`);
-      bloom.addColorStop(1, `rgba(${tint}, 0)`);
-      cctx.fillStyle = bloom;
-      cctx.beginPath();
-      cctx.arc(px, py, bloomRadius, 0, Math.PI * 2);
-      cctx.fill();
+  /** Build the **vignette** cache: corner-darken overlay on a TRANSPARENT canvas.
+   *  Blitted over the animated layers (sky → drift → hero stars → twinkle) but
+   *  UNDER meteors, matching the original z-order so meteor heads still glow
+   *  brightly even in the darkened corners. */
+  const bakeVignette = (width: number, height: number, dpr: number) => {
+    const cache = document.createElement('canvas');
+    cache.width = Math.max(1, Math.floor(width * dpr));
+    cache.height = Math.max(1, Math.floor(height * dpr));
+    const cctx = cache.getContext('2d');
+    if (!cctx) {
+      vignetteCache = null;
+      return;
     }
-    cctx.restore();
-
-    // Full starfield (halos + cores + flares) — baked once, blitted forever.
-    drawStars(cctx, width, height);
-
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawVignette(cctx, width, height);
+    vignetteCache = cache;
+  };
 
-    staticCache = cache;
-    staticCacheDpr = dpr;
+  const bakeAllCaches = (width: number, height: number, dpr: number) => {
+    bakeBackplate(width, height, dpr);
+    bakeDriftLayer(width, height, dpr);
+    bakeVignette(width, height, dpr);
+    cacheDpr = dpr;
+    cacheWidth = width;
+    cacheHeight = height;
   };
 
   /* ──────── public API ──────── */
@@ -675,39 +842,83 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     setup({ width, height, dpr }) {
       ensureHaloSprites();
       buildScene(width, height);
-      bakeStaticCache(width, height, dpr);
+      bakeAllCaches(width, height, dpr);
     },
 
     draw({ ctx, width, height, time, delta, reducedMotion, dpr }) {
-      // Re-bake if the active DPR changed (e.g. window moved to a different display).
-      if (staticCache && staticCacheDpr !== dpr) bakeStaticCache(width, height, dpr);
+      // Re-bake on DPR change (window moved between displays) or any size mismatch.
+      if (
+        backplateCache &&
+        (cacheDpr !== dpr || cacheWidth !== width || cacheHeight !== height)
+      ) {
+        bakeAllCaches(width, height, dpr);
+      }
 
-      // 1. Blit the pre-rendered static backplate (one drawImage call → GPU-fast).
-      // Contains: sky + nebulas + milky way + full starfield + vignette.
-      if (staticCache) {
-        ctx.drawImage(staticCache, 0, 0, width, height);
+      // 1. Backplate: sky + non-hero starfield. Static.
+      if (backplateCache) {
+        ctx.drawImage(backplateCache, 0, 0, width, height);
       } else {
-        // Fallback if the cache failed to allocate — draw live.
         drawSky(ctx, width, height);
+        drawStars(ctx, width, height);
+      }
+
+      // 2. Drift layer: nebulas + milky-way glow, blitted with `screen` blend at
+      //    a slow Lissajous offset. Two sines of different periods on each axis
+      //    keep the motion from ever exactly repeating, so the sky never settles.
+      //    In reduced-motion mode the offset is pinned to 0 — still composited so
+      //    the colour pallete is preserved, just frozen in place.
+      const driftX = reducedMotion
+        ? 0
+        : (Math.sin(time * 0.07) * 0.6 + Math.cos(time * 0.11) * 0.4) * NEBULA_DRIFT_AMP;
+      const driftY = reducedMotion
+        ? 0
+        : (Math.sin(time * 0.05) * 0.6 + Math.cos(time * 0.09) * 0.4) * NEBULA_DRIFT_AMP;
+      if (driftCache) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.drawImage(
+          driftCache,
+          -NEBULA_DRIFT_PADDING + driftX,
+          -NEBULA_DRIFT_PADDING + driftY,
+          width + NEBULA_DRIFT_PADDING * 2,
+          height + NEBULA_DRIFT_PADDING * 2,
+        );
+        ctx.restore();
+      } else {
+        // Cache missed — fall back to live draw at the canvas origin.
         drawNebulas(ctx, width, height);
         drawMilkyWayGlow(ctx, width, height);
-        drawStars(ctx, width, height);
+      }
+
+      // 3. Hero stars live (parallax + intrinsic twinkle + pulsing flare crosses).
+      //    Drawn AFTER drift so they always sit in front of the moving dust clouds.
+      //    In reduced-motion mode `time` is effectively frozen at 0 for the offsets
+      //    by short-circuiting here — we still draw heroes so the bright stars are
+      //    present, just stationary.
+      drawHeroStarsLive(ctx, width, height, reducedMotion ? 0 : time);
+
+      // 4. Vignette over everything except meteors.
+      if (vignetteCache) {
+        ctx.drawImage(vignetteCache, 0, 0, width, height);
+      } else {
+        drawVignette(ctx, width, height);
       }
 
       if (reducedMotion) return;
 
-      // 2. Twinkle overlay — cheap (~24 stars). Drawn before meteors so the
-      //    meteor head bloom always renders on top of any shimmering star.
+      // 5. Twinkle overlay — bumped to TWINKLE_POOL_SIZE stars with a stronger
+      //    intensity curve so the sky reads as alive between meteor crossings.
+      //    Drawn before meteors so meteor head bloom always renders on top.
       drawTwinkle(ctx, width, height, time);
 
-      // 3. Spawn meteors
+      // 6. Spawn meteors
       timeToNextMeteor -= delta;
       if (timeToNextMeteor <= 0 && meteors.length < MAX_METEORS) {
         meteors.push(spawnMeteor(width, height, rand));
         timeToNextMeteor = 2.0 + rand() * 3.0;
       }
 
-      // 4. Update + draw meteors
+      // 7. Update + draw meteors
       timeSinceTrailSample += delta;
       const shouldSample = timeSinceTrailSample >= TRAIL_SAMPLE_INTERVAL;
       if (shouldSample) timeSinceTrailSample = 0;
