@@ -1,8 +1,8 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
-import { createAuroraRenderer } from './renderer';
+import { createLiquidAuroraRenderer } from './renderer';
 
-export interface AuroraProps {
+export interface LiquidAuroraProps {
   seed?: number;
   className?: string;
   style?: CSSProperties;
@@ -22,9 +22,9 @@ const canvasStyle: CSSProperties = {
   height: '100%',
 };
 
-export function Aurora({ seed, className, style }: AuroraProps) {
+export function LiquidAurora({ seed, className, style }: LiquidAuroraProps) {
   const renderer = useMemo(
-    () => createAuroraRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
+    () => createLiquidAuroraRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
     [seed],
   );
 

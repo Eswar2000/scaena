@@ -1,10 +1,14 @@
 import type { CSSProperties } from 'react';
-import { Aurora } from './backdrops/aurora';
-import { DeepOcean } from './backdrops/deep-ocean';
 import { KyotoPetals } from './backdrops/kyoto-petals';
+import { LiquidAurora } from './backdrops/liquid-aurora';
 import { MidnightMeteor } from './backdrops/midnight-meteor';
+import { TidalDrift } from './backdrops/tidal-drift';
 
-export type BackdropName = 'midnight-meteor' | 'kyoto-petals' | 'aurora' | 'deep-ocean';
+export type BackdropName =
+  | 'midnight-meteor'
+  | 'kyoto-petals'
+  | 'liquid-aurora'
+  | 'tidal-drift';
 
 export interface BackdropProps {
   /** Which backdrop to render. */
@@ -27,10 +31,10 @@ export function Backdrop({ name, seed, className, style }: BackdropProps) {
       return <MidnightMeteor seed={seed} className={className} style={style} />;
     case 'kyoto-petals':
       return <KyotoPetals seed={seed} className={className} style={style} />;
-    case 'aurora':
-      return <Aurora seed={seed} className={className} style={style} />;
-    case 'deep-ocean':
-      return <DeepOcean seed={seed} className={className} style={style} />;
+    case 'liquid-aurora':
+      return <LiquidAurora seed={seed} className={className} style={style} />;
+    case 'tidal-drift':
+      return <TidalDrift seed={seed} className={className} style={style} />;
     default:
       return null;
   }

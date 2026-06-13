@@ -2,7 +2,7 @@ import { createPrng } from '../../lib/prng';
 import type { CanvasFrameContext } from '../../lib/useCanvas';
 
 /* ─────────────────────────────────────────────────────────────────────────
- * aurora
+ * liquid-aurora
  *
  * Deliberately NOT a literal aurora (no curtains, no rays, no ribbons —
  * those always read as "fake aurora"). Instead: a deep, dark canvas
@@ -103,12 +103,12 @@ function ensureSprites() {
   blobSprites = AURORA_PALETTE.map((rgb) => buildBlobSprite(rgb));
 }
 
-export interface AuroraRenderer {
+export interface LiquidAuroraRenderer {
   draw: (frame: CanvasFrameContext) => void;
   setup: (frame: Omit<CanvasFrameContext, 'time' | 'delta'>) => void;
 }
 
-export function createAuroraRenderer(seed: number): AuroraRenderer {
+export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
   let blobs: Blob[] = [];
   // Cached background (gradient is identical every frame).
   let cachedBg: HTMLCanvasElement | null = null;

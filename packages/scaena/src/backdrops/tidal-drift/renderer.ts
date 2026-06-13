@@ -2,7 +2,7 @@ import { createPrng } from '../../lib/prng';
 import type { CanvasFrameContext } from '../../lib/useCanvas';
 
 /* ─────────────────────────────────────────────────────────────────────────
- * deep-ocean
+ * tidal-drift
  *
  * Open ocean from a bird's-eye view — like a satellite shot or the view
  * from a small plane at cruise altitude. No horizon, no land, no boats.
@@ -115,12 +115,12 @@ function ensureSprites() {
 
 /* ───────── renderer ───────── */
 
-export interface OceanRenderer {
+export interface TidalDriftRenderer {
   draw: (frame: CanvasFrameContext) => void;
   setup: (frame: Omit<CanvasFrameContext, 'time' | 'delta'>) => void;
 }
 
-export function createDeepOceanRenderer(seed: number): OceanRenderer {
+export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
   // Stateful PRNG for transient glints; scene PRNG is rebuilt fresh in buildScene
   // so resize / DPR change never reshuffles the wave layout.
   const rand = createPrng(seed);

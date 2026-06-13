@@ -1,8 +1,8 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
-import { createDeepOceanRenderer } from './renderer';
+import { createTidalDriftRenderer } from './renderer';
 
-export interface DeepOceanProps {
+export interface TidalDriftProps {
   seed?: number;
   className?: string;
   style?: CSSProperties;
@@ -22,9 +22,9 @@ const canvasStyle: CSSProperties = {
   height: '100%',
 };
 
-export function DeepOcean({ seed, className, style }: DeepOceanProps) {
+export function TidalDrift({ seed, className, style }: TidalDriftProps) {
   const renderer = useMemo(
-    () => createDeepOceanRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
+    () => createTidalDriftRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
     [seed],
   );
 

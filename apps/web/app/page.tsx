@@ -94,8 +94,8 @@ const BACKDROPS = [
     },
   },
   {
-    name: 'aurora',
-    label: 'aurora',
+    name: 'liquid-aurora',
+    label: 'liquid-aurora',
     vibe: 'Liquid ribbons of emerald, cyan and violet drifting across a deep night canvas.',
     text: {
       eyebrow: 'text-white/80',
@@ -119,8 +119,8 @@ const BACKDROPS = [
     },
   },
   {
-    name: 'deep-ocean',
-    label: 'deep-ocean',
+    name: 'tidal-drift',
+    label: 'tidal-drift',
     vibe: 'Open ocean from above — slow parallel swells rolling beneath a scatter of sun glints.',
     text: {
       eyebrow: 'text-white/75',
