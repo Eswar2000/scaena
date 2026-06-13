@@ -13,15 +13,19 @@ import type { CanvasFrameContext } from '../../lib/useCanvas';
  *      to ink-blue at the edges (light scatters more directly below you
  *      when looking straight down).
  *   2. Wave bands — 4 long, soft, slightly-diagonal stripes drifting
- *      perpendicular to their own length, looping infinitely.
+ *      perpendicular to their own length, looping infinitely. Each band
+ *      "breathes" — its opacity swells and ebbs on a ~15–25s cycle, like
+ *      real wave sets passing through.
  *   3. Crest haze — a few wider, very low-opacity bands at different
  *      angles for "depth" (suggests multiple swell systems).
- *   4. Sun glints — tiny short-lived diamond highlights scattered across
- *      the surface, like sun catching the water from a plane.
+ *   4. Cloud shadows — 4 huge, very soft dark ellipses drifting on slow
+ *      Lissajous paths overhead, dimming the water below them like
+ *      broken-cloud shadows seen from a plane. The eye latches onto
+ *      these the way it used to latch onto the sun glints.
  *   5. Vignette — gentle darkening at the corners (like a real aerial lens).
  *
  * Per-frame cost: 1 background blit + ~6 transformed drawImage(band) +
- * ~30–50 glint arcs + 1 vignette. Sprites pre-baked once.
+ * 4 transformed drawImage(cloud) + 1 vignette. Sprites pre-baked once.
  *
  * Calibrated NOT to look like:
  *   - a swimming pool (too pure-blue, too saturated)
@@ -42,22 +46,39 @@ interface Band {
   offset: number;
   /** Spacing of repeats so the band tiles cleanly across the canvas. */
   spacing: number;
-  /** 0..1 — overall opacity of this band layer. */
+  /** 0..1 — baseline opacity of this band layer (before breath modulation). */
   alpha: number;
   /** Light blue used to render the band sprite (selected at sprite-build time). */
   paletteIndex: number;
+  /** Hz — frequency of the slow swell-set breathing (typically 0.04–0.08). */
+  breathFreq: number;
+  /** Radians — phase offset so bands don't all breathe in unison. */
+  breathPhase: number;
+  /** 0..1 — fractional amplitude of the breath; final alpha = base * (1 + amp * sin(...)). */
+  breathAmp: number;
 }
 
-interface Glint {
-  /** 0..1 position. */
-  x: number;
-  y: number;
-  /** Seconds remaining before this glint dies. */
-  life: number;
-  /** Total lifetime — used to compute fade alpha. */
-  lifetime: number;
-  /** Peak radius in CSS px. */
-  size: number;
+interface Cloud {
+  /** 0..1 — center of the orbit, in canvas-fraction coords. */
+  baseX: number;
+  baseY: number;
+  /** Ellipse half-extents in CSS px. */
+  radiusX: number;
+  radiusY: number;
+  /** Rotation of the ellipse, radians. */
+  rotation: number;
+  /** Lissajous orbit amplitudes (fraction of canvas dim) and frequencies (Hz). */
+  ampX: number;
+  ampY: number;
+  freqX: number;
+  freqY: number;
+  phaseX: number;
+  phaseY: number;
+  /** Peak opacity of the darkening (0..1). */
+  alpha: number;
+  /** Slow opacity breath so clouds feel like they're thickening / thinning. */
+  alphaFreq: number;
+  alphaPhase: number;
 }
 
 // Deep base — almost navy with a green undertone. Pure blue reads as "pool".
@@ -73,14 +94,14 @@ const BAND_TINTS: ReadonlyArray<readonly [number, number, number]> = [
   [150, 220, 230], // bright crest highlight (sparingly used)
 ];
 
-// Sun glint — warm-white. The sun isn't blue.
-const GLINT_RGB = '255, 250, 230';
-
 const BAND_SPRITE_W = 512; // long axis — stretched per band
 const BAND_SPRITE_H = 64; // soft falloff axis
 
-const MAX_GLINTS = 50;
-const GLINT_SPAWN_PER_SEC = 22;
+// Cloud shadow sprite — one shared circular soft-dark blob, stretched per cloud.
+const CLOUD_SPRITE_SIZE = 256;
+// Peak alpha *inside the sprite itself*; each cloud further modulates with
+// its own `alpha` and the breath envelope.
+const CLOUD_SPRITE_PEAK = 0.55;
 
 /* ───────── sprites ───────── */
 
@@ -107,10 +128,34 @@ function buildBandSprite(rgb: readonly [number, number, number]): HTMLCanvasElem
   return c;
 }
 
+/**
+ * A soft circular dark blob used as the cloud-shadow sprite. Built once,
+ * stretched/rotated per cloud each frame via `drawImage`. Default `source-over`
+ * composite means this just darkens the water beneath it — exactly what a
+ * broken-cloud shadow does in real life.
+ */
+function buildCloudSprite(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = CLOUD_SPRITE_SIZE;
+  c.height = CLOUD_SPRITE_SIZE;
+  const cx = c.getContext('2d');
+  if (!cx) return c;
+  const half = CLOUD_SPRITE_SIZE / 2;
+  const g = cx.createRadialGradient(half, half, 0, half, half, half);
+  // Quadratic-ish falloff — broad soft center, long fade. No hard edge.
+  g.addColorStop(0, `rgba(0, 0, 0, ${CLOUD_SPRITE_PEAK})`);
+  g.addColorStop(0.45, `rgba(0, 0, 0, ${CLOUD_SPRITE_PEAK * 0.45})`);
+  g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  cx.fillStyle = g;
+  cx.fillRect(0, 0, CLOUD_SPRITE_SIZE, CLOUD_SPRITE_SIZE);
+  return c;
+}
+
 let bandSprites: HTMLCanvasElement[] | null = null;
+let cloudSprite: HTMLCanvasElement | null = null;
 function ensureSprites() {
-  if (bandSprites) return;
-  bandSprites = BAND_TINTS.map((rgb) => buildBandSprite(rgb));
+  if (!bandSprites) bandSprites = BAND_TINTS.map((rgb) => buildBandSprite(rgb));
+  if (!cloudSprite) cloudSprite = buildCloudSprite();
 }
 
 /* ───────── renderer ───────── */
@@ -121,19 +166,17 @@ export interface TidalDriftRenderer {
 }
 
 export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
-  // Stateful PRNG for transient glints; scene PRNG is rebuilt fresh in buildScene
-  // so resize / DPR change never reshuffles the wave layout.
-  const rand = createPrng(seed);
+  // Scene PRNG is rebuilt fresh in buildScene so resize / DPR change never
+  // reshuffles the wave or cloud layout. We don't need a long-lived stateful
+  // PRNG anymore — there's no per-frame randomness now that glints are gone.
   let bands: Band[] = [];
+  let clouds: Cloud[] = [];
   /** Pre-computed traverse distance per band — the perpendicular distance
    *  the band has to travel before it wraps. Picked so a band always covers
    *  the canvas even when rotated. */
   let traverse = 0;
 
-  const glints: Glint[] = [];
-  let glintSpawnAccum = 0;
-
-  // Cached static layers: background + vignette (everything that never animates).
+  // Cached static layers: background (everything that never animates).
   let cachedBg: HTMLCanvasElement | null = null;
   let cachedBgDpr = 1;
   let cachedW = 0;
@@ -153,6 +196,9 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
     bands = [];
 
     // Hero bands — narrow-ish, brighter, faster.
+    // Breath: hero bands share a base phase clustered within ~π so they tend
+    // to swell together, like a wave set rolling through.
+    const heroBreathBase = srand() * Math.PI * 2;
     for (let i = 0; i < 4; i += 1) {
       // Angles between -7° and +7°. Pick each band's angle as a small offset
       // from a "base swell direction" so they look correlated, like real
@@ -168,6 +214,10 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
         spacing: Math.max(width, height) * (0.15 + srand() * 0.06),
         alpha: 0.18 + srand() * 0.08,
         paletteIndex: i % 3, // pale, mid, deep
+        // ~14–22s period. Clustered phase so the set feels coherent.
+        breathFreq: 0.045 + srand() * 0.025,
+        breathPhase: heroBreathBase + (srand() - 0.5) * Math.PI * 0.6,
+        breathAmp: 0.28 + srand() * 0.12,
       });
     }
 
@@ -183,6 +233,52 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
         spacing: Math.max(width, height) * (0.3 + srand() * 0.1),
         alpha: 0.07 + srand() * 0.04,
         paletteIndex: 1, // mid teal
+        // Slower, fully independent phase — these are "another swell system".
+        breathFreq: 0.025 + srand() * 0.02,
+        breathPhase: srand() * Math.PI * 2,
+        breathAmp: 0.35 + srand() * 0.15,
+      });
+    }
+
+    // Cloud shadows — 4 huge soft dark ellipses on slow Lissajous orbits,
+    // overhead. Their job is to give the eye something to track (the role
+    // the sun glints used to play) without the "sparkly" feel.
+    clouds = [];
+    const shortDim = Math.min(width, height);
+    const longDim = Math.max(width, height);
+    for (let i = 0; i < 4; i += 1) {
+      // Spread base positions so clouds don't pile up in one spot.
+      const baseX = 0.2 + (i % 2) * 0.6 + (srand() - 0.5) * 0.2;
+      const baseY = 0.25 + Math.floor(i / 2) * 0.5 + (srand() - 0.5) * 0.2;
+      // Big — each cloud covers a real chunk of the frame. They're meant to
+      // read as ambient dimming, not as discrete objects you can outline.
+      const radiusBase = shortDim * (0.45 + srand() * 0.25);
+      // Stretch one axis so clouds look like elongated cells, not perfect discs.
+      const stretch = 1.2 + srand() * 0.6;
+      const radiusX = radiusBase * stretch;
+      const radiusY = radiusBase;
+      clouds.push({
+        baseX,
+        baseY,
+        radiusX,
+        radiusY,
+        rotation: (srand() - 0.5) * Math.PI, // any tilt
+        // Drift amplitude as fraction of long dim — small, so the orbit is a
+        // slow wander, not a racetrack.
+        ampX: (0.12 + srand() * 0.1) * (longDim / width),
+        ampY: (0.12 + srand() * 0.1) * (longDim / height),
+        // Periods between ~80s and ~180s. Different freqX/freqY makes the orbit
+        // a proper Lissajous figure that never quite repeats visually.
+        freqX: 0.0055 + srand() * 0.007,
+        freqY: 0.0055 + srand() * 0.007,
+        phaseX: srand() * Math.PI * 2,
+        phaseY: srand() * Math.PI * 2,
+        // Peak darkening per cloud — kept modest so they read as shadows, not
+        // ink stains. The sprite already has a 0.55 internal peak.
+        alpha: 0.35 + srand() * 0.2,
+        // Cloud thickening/thinning, ~25–50s period.
+        alphaFreq: 0.02 + srand() * 0.02,
+        alphaPhase: srand() * Math.PI * 2,
       });
     }
   };
@@ -240,7 +336,7 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
     }
     cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawBackground(cctx, width, height);
-    // Note: vignette is drawn LAST every frame, on top of bands+glints,
+    // Note: vignette is drawn LAST every frame, on top of bands+clouds,
     // so it's NOT part of the static cache.
     cachedBg = c;
     cachedBgDpr = dpr;
@@ -269,11 +365,18 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
     // Perpendicular offset for this frame, wrapped to one spacing period.
     const drift = (band.offset + band.speed * time) % band.spacing;
 
+    // Swell breathing — modulate this band's opacity on its own slow cycle.
+    // Hero bands share a clustered phase so a swell set tends to crest in
+    // unison; haze bands have independent phases for that "two seas" feel.
+    const breath =
+      1 + band.breathAmp * Math.sin(2 * Math.PI * band.breathFreq * time + band.breathPhase);
+    const effectiveAlpha = Math.max(0, band.alpha * breath);
+
     ctx.save();
     // Pivot around the canvas center, rotate, then draw stripes in local space.
     ctx.translate(width / 2, height / 2);
     ctx.rotate(band.angle);
-    ctx.globalAlpha = band.alpha;
+    ctx.globalAlpha = effectiveAlpha;
 
     // We draw stripes from y = -traverse/2 to +traverse/2 stepped by spacing.
     // Adding `drift` shifts the whole ladder.
@@ -294,64 +397,46 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
     ctx.restore();
   };
 
-  /* ── glint rendering ── */
+  /* ── cloud-shadow rendering ── */
 
   /**
-   * Spawn fresh glints up to MAX_GLINTS at a rate of GLINT_SPAWN_PER_SEC.
-   * Each glint lives 0.8–1.8s and fades in/out via a sin envelope.
+   * Draw the cloud shadows. Each cloud orbits on a Lissajous figure (slightly
+   * different X and Y frequencies → orbit never quite repeats) and pulses its
+   * own opacity on yet another slow cycle. Composited normally so the dark
+   * sprite just *dims* the water beneath it — same as a real cloud shadow.
    */
-  const updateGlints = (delta: number, width: number, height: number) => {
-    glintSpawnAccum += delta * GLINT_SPAWN_PER_SEC;
-    while (glintSpawnAccum >= 1 && glints.length < MAX_GLINTS) {
-      glintSpawnAccum -= 1;
-      const lifetime = 0.8 + rand() * 1.0;
-      glints.push({
-        x: rand(),
-        y: rand(),
-        life: lifetime,
-        lifetime,
-        // Most glints are tiny; ~10% are slightly larger for visual rhythm.
-        size: rand() < 0.1 ? 1.6 + rand() * 0.8 : 0.6 + rand() * 0.6,
-      });
-    }
-    // Suppress fractional accumulator if we're at the cap.
-    if (glints.length >= MAX_GLINTS) glintSpawnAccum = Math.min(glintSpawnAccum, 1);
-
-    for (let i = glints.length - 1; i >= 0; i -= 1) {
-      const g = glints[i];
-      if (!g) continue;
-      g.life -= delta;
-      if (g.life <= 0) glints.splice(i, 1);
-    }
-
-    // Silence "unused width/height" — kept for symmetry with other update fns
-    // and in case we later want viewport-aware spawn biasing.
-    void width;
-    void height;
-  };
-
-  const drawGlints = (
+  const drawClouds = (
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
+    time: number,
   ) => {
-    if (glints.length === 0) return;
+    if (!cloudSprite || clouds.length === 0) return;
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const g of glints) {
-      // Sin envelope: 0 → 1 → 0 over the glint's lifetime. Squared for
-      // a sharper peak, so glints feel like "flashes" not "blobs".
-      const t = 1 - g.life / g.lifetime;
-      const env = Math.sin(t * Math.PI);
-      const alpha = env * env * 0.9;
-      if (alpha < 0.02) continue;
-      const px = g.x * width;
-      const py = g.y * height;
-      const r = g.size;
-      ctx.fillStyle = `rgba(${GLINT_RGB}, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fill();
+    for (const cloud of clouds) {
+      const cx =
+        (cloud.baseX + cloud.ampX * Math.sin(2 * Math.PI * cloud.freqX * time + cloud.phaseX)) *
+        width;
+      const cy =
+        (cloud.baseY + cloud.ampY * Math.sin(2 * Math.PI * cloud.freqY * time + cloud.phaseY)) *
+        height;
+      // Breath: oscillate around 0.7 ± 0.3 so the cloud never fully disappears
+      // but does noticeably thicken and thin.
+      const breath =
+        0.7 +
+        0.3 * Math.sin(2 * Math.PI * cloud.alphaFreq * time + cloud.alphaPhase);
+      const alpha = cloud.alpha * breath;
+      if (alpha < 0.01) continue;
+      ctx.globalAlpha = alpha;
+      ctx.setTransform(1, 0, 0, 1, cx, cy);
+      ctx.rotate(cloud.rotation);
+      ctx.drawImage(
+        cloudSprite,
+        -cloud.radiusX,
+        -cloud.radiusY,
+        cloud.radiusX * 2,
+        cloud.radiusY * 2,
+      );
     }
     ctx.restore();
   };
@@ -363,12 +448,9 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
       ensureSprites();
       buildScene(width, height);
       bakeStatic(width, height, dpr);
-      // Reset transient state on (re)setup.
-      glints.length = 0;
-      glintSpawnAccum = 0;
     },
 
-    draw({ ctx, width, height, time, delta, dpr, reducedMotion }) {
+    draw({ ctx, width, height, time, dpr, reducedMotion }) {
       if (
         !cachedBg ||
         cachedBgDpr !== dpr ||
@@ -385,23 +467,21 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
         drawBackground(ctx, width, height);
       }
 
-      // Reduced-motion: freeze time so the bands & glints are static, but
-      // still draw a complete frame (they're beautiful at rest).
+      // Reduced-motion: freeze time so bands & clouds are static, but still
+      // draw a complete frame (the scene is beautiful at rest).
       const t = reducedMotion ? 0 : time;
 
       // 2. Wave bands (and haze bands) — drawn back-to-front; haze last so it
       //    sits on top of crisper bands as atmospheric "softening".
       //    Our order: hero bands first (indices 0–3), then haze (indices 4–5).
-      //    That matches a natural "background swells over foreground crests"
-      //    reading because haze is much lower opacity and slower.
+      //    Each band's opacity breathes on a slow cycle (swell-set feel).
       for (const band of bands) {
         drawBand(ctx, width, height, band, t);
       }
 
-      // 3. Sun glints — disabled. Kept code path for easy re-enable.
-      // if (!reducedMotion) updateGlints(delta, width, height);
-      // drawGlints(ctx, width, height);
-      void delta;
+      // 3. Cloud shadows — large soft dark cells drifting overhead. Drawn
+      //    on top of the water so they actually dim the bands & background.
+      drawClouds(ctx, width, height, t);
 
       // 4. Vignette (always last)
       drawVignette(ctx, width, height);
