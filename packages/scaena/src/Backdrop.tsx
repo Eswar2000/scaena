@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react';
+import { Aurora } from './backdrops/aurora';
 import { KyotoPetals } from './backdrops/kyoto-petals';
 import { MidnightMeteor } from './backdrops/midnight-meteor';
 
-export type BackdropName = 'midnight-meteor' | 'kyoto-petals';
+export type BackdropName = 'midnight-meteor' | 'kyoto-petals' | 'aurora';
 
 export interface BackdropProps {
   /** Which backdrop to render. */
@@ -25,6 +26,8 @@ export function Backdrop({ name, seed, className, style }: BackdropProps) {
       return <MidnightMeteor seed={seed} className={className} style={style} />;
     case 'kyoto-petals':
       return <KyotoPetals seed={seed} className={className} style={style} />;
+    case 'aurora':
+      return <Aurora seed={seed} className={className} style={style} />;
     default:
       return null;
   }

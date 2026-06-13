@@ -33,6 +33,7 @@ The `<Backdrop />` fills its nearest positioned ancestor. Wrap it in a `position
 | --- | --- |
 | `midnight-meteor` | A still, dark night sky with softly twinkling stars and occasional meteors |
 | `kyoto-petals` | Cherry blossom petals drifting gently on a soft spring breeze |
+| `aurora` | Liquid ribbons of emerald, cyan and violet drifting across a deep night canvas |
 
 More on the way.
 

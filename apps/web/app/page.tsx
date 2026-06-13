@@ -93,6 +93,31 @@ const BACKDROPS = [
       optionSelected: 'text-rose-200',
     },
   },
+  {
+    name: 'aurora',
+    label: 'aurora',
+    vibe: 'Liquid ribbons of emerald, cyan and violet drifting across a deep night canvas.',
+    text: {
+      eyebrow: 'text-white/80',
+      headlineGradient: 'from-white to-emerald-100/70',
+      body: 'text-white/80',
+      label: 'text-white/60',
+      // medium shadow — backdrop is dark with bright blobs, so text needs lift only where it crosses a blob
+      shadow:
+        '[filter:drop-shadow(0_2px_10px_rgba(0,0,0,0.55))_drop-shadow(0_1px_2px_rgba(0,0,0,0.45))]',
+    },
+    chip: {
+      // emerald-tinted glass — the most iconic aurora color, sits well on indigo night
+      surface:
+        'border-emerald-200/20 bg-slate-950/55 text-emerald-50/95 hover:border-emerald-200/35 focus:border-emerald-200/45 focus:ring-emerald-200/25',
+      accent: 'text-emerald-200/80',
+      popup:
+        'border-emerald-200/20 bg-slate-950/90 text-emerald-50/95 shadow-[0_12px_40px_-10px_rgba(0,30,20,0.7)] ring-1 ring-emerald-200/10',
+      option: 'text-emerald-50/90 hover:bg-emerald-300/10',
+      optionActive: 'bg-emerald-300/15 text-white',
+      optionSelected: 'text-emerald-200',
+    },
+  },
 ] as const satisfies readonly BackdropEntry[];const DEFAULT_BACKDROP: BackdropName = 'kyoto-petals';
 
 export default function HomePage() {
