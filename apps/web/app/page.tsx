@@ -143,7 +143,34 @@ const BACKDROPS = [
       optionSelected: 'text-cyan-200',
     },
   },
-] as const satisfies readonly BackdropEntry[];const DEFAULT_BACKDROP: BackdropName = 'kyoto-petals';
+  {
+    name: 'wire-mesa',
+    label: 'wire-mesa',
+    vibe: 'Sci-fi wireframe terrain rushing past — endless cyan ridges scrolling into a glowing horizon.',
+    text: {
+      eyebrow: 'text-cyan-100/80',
+      headlineGradient: 'from-white to-cyan-100/70',
+      body: 'text-cyan-50/85',
+      label: 'text-cyan-100/55',
+      // medium shadow — dark sky with bright cyan grid lines; text needs a soft lift
+      shadow:
+        '[filter:drop-shadow(0_2px_10px_rgba(0,4,16,0.65))_drop-shadow(0_1px_2px_rgba(0,4,16,0.55))]',
+    },
+    chip: {
+      // cyan-tinted glass — picks up the wireframe grid colour
+      surface:
+        'border-cyan-200/25 bg-slate-950/60 text-cyan-50/95 hover:border-cyan-200/40 focus:border-cyan-200/50 focus:ring-cyan-200/25',
+      accent: 'text-cyan-200/85',
+      popup:
+        'border-cyan-200/25 bg-slate-950/90 text-cyan-50/95 shadow-[0_12px_40px_-10px_rgba(0,10,30,0.75)] ring-1 ring-cyan-200/15',
+      option: 'text-cyan-50/90 hover:bg-cyan-300/10',
+      optionActive: 'bg-cyan-300/15 text-white',
+      optionSelected: 'text-cyan-200',
+    },
+  },
+] as const satisfies readonly BackdropEntry[];
+
+const DEFAULT_BACKDROP: BackdropName = 'kyoto-petals';
 
 export default function HomePage() {
   const [active, setActive] = useState<BackdropName>(DEFAULT_BACKDROP);

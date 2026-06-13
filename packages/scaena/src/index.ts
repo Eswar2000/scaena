@@ -10,3 +10,5 @@ export { LiquidAurora } from './backdrops/liquid-aurora';
 export type { LiquidAuroraProps } from './backdrops/liquid-aurora';
 export { TidalDrift } from './backdrops/tidal-drift';
 export type { TidalDriftProps } from './backdrops/tidal-drift';
+export { WireMesa } from './backdrops/wire-mesa';
+export type { WireMesaProps } from './backdrops/wire-mesa';
