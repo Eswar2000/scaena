@@ -189,6 +189,10 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
   const rand = createPrng(seed);
   let nebulas: NebulaCloud[] = [];
   let stars: Star[] = [];
+  /** Small subset of the brightest non-flare stars that get a per-frame twinkle overlay.
+   *  Cheap: ~24 additive arcs per frame, modulated by sin(time). Restores the
+   *  "softly twinkling" promise without re-introducing the per-frame loop over all stars. */
+  let twinkleStars: Star[] = [];
   const meteors: Meteor[] = [];
   let timeToNextMeteor = 1.0 + rand() * 1.5;
   let timeSinceTrailSample = 0;
@@ -317,6 +321,15 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     // Sort so dim stars draw first, hero stars on top (avoids halo-cutoff artifacts)
     next.sort((a, b) => (a.hero === b.hero ? a.coreRadius - b.coreRadius : a.hero ? 1 : -1));
     stars = next;
+
+    // Pick the brightest ~24 stars for the per-frame twinkle overlay. Flare stars
+    // already draw a static diffraction cross, so they read as "sparkling" without
+    // animation — skip them to avoid double-emphasis. Sorting a copy keeps the
+    // bake order (above) untouched.
+    twinkleStars = [...next]
+      .filter((s) => !s.flare)
+      .sort((a, b) => b.coreRadius * b.baseAlpha - a.coreRadius * a.baseAlpha)
+      .slice(0, 24);
   };
 
   /* ──────── draw passes ──────── */
@@ -449,6 +462,42 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     vignette.addColorStop(1, 'rgba(0,0,0,0.7)');
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, width, height);
+  };
+
+  /**
+   * Per-frame twinkle overlay. Loops only the ~24 brightest stars and adds a
+   * small additive halo whose alpha is modulated by sin(time). Because the
+   * underlying star is already baked at full intensity, we can only ever
+   * *brighten* it — which happens to match how stars twinkle to the naked eye
+   * (they appear to flicker brighter, not dim). Cost: ~24 arcs per frame.
+   */
+  const drawTwinkle = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    time: number,
+  ) => {
+    if (twinkleStars.length === 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const star of twinkleStars) {
+      const wave = 0.5 + 0.5 * Math.sin(time * star.twinkleSpeed + star.twinklePhase);
+      // Soft ease so dim phases are flatter (less "blinking", more "breathing").
+      const intensity = wave * wave * 0.55;
+      if (intensity < 0.01) continue;
+      const tint = lerpRgb(STAR_COOL, STAR_WARM, star.warmth);
+      const px = star.x * width;
+      const py = star.y * height;
+      const radius = star.coreRadius * (star.hero ? 2.2 : 1.6);
+      const grad = ctx.createRadialGradient(px, py, 0, px, py, radius);
+      grad.addColorStop(0, `rgba(${tint}, ${star.baseAlpha * intensity})`);
+      grad.addColorStop(1, `rgba(${tint}, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   };
 
   /**
@@ -629,7 +678,7 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
       bakeStaticCache(width, height, dpr);
     },
 
-    draw({ ctx, width, height, delta, reducedMotion, dpr }) {
+    draw({ ctx, width, height, time, delta, reducedMotion, dpr }) {
       // Re-bake if the active DPR changed (e.g. window moved to a different display).
       if (staticCache && staticCacheDpr !== dpr) bakeStaticCache(width, height, dpr);
 
@@ -647,14 +696,18 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
 
       if (reducedMotion) return;
 
-      // 2. Spawn meteors
+      // 2. Twinkle overlay — cheap (~24 stars). Drawn before meteors so the
+      //    meteor head bloom always renders on top of any shimmering star.
+      drawTwinkle(ctx, width, height, time);
+
+      // 3. Spawn meteors
       timeToNextMeteor -= delta;
       if (timeToNextMeteor <= 0 && meteors.length < MAX_METEORS) {
         meteors.push(spawnMeteor(width, height, rand));
         timeToNextMeteor = 2.0 + rand() * 3.0;
       }
 
-      // 3. Update + draw meteors
+      // 4. Update + draw meteors
       timeSinceTrailSample += delta;
       const shouldSample = timeSinceTrailSample >= TRAIL_SAMPLE_INTERVAL;
       if (shouldSample) timeSinceTrailSample = 0;
