@@ -14,3 +14,5 @@ export { WireMesa } from './backdrops/wire-mesa';
 export type { WireMesaProps } from './backdrops/wire-mesa';
 export { FlowField } from './backdrops/flow-field';
 export type { FlowFieldProps } from './backdrops/flow-field';
+export { GlyphRain } from './backdrops/glyph-rain';
+export type { GlyphRainProps } from './backdrops/glyph-rain';

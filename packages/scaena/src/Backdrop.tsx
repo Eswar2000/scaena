@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { FlowField } from './backdrops/flow-field';
+import { GlyphRain } from './backdrops/glyph-rain';
 import { KyotoPetals } from './backdrops/kyoto-petals';
 import { LiquidAurora } from './backdrops/liquid-aurora';
 import { MidnightMeteor } from './backdrops/midnight-meteor';
@@ -12,7 +13,8 @@ export type BackdropName =
   | 'liquid-aurora'
   | 'tidal-drift'
   | 'wire-mesa'
-  | 'flow-field';
+  | 'flow-field'
+  | 'glyph-rain';
 
 export interface BackdropProps {
   /** Which backdrop to render. */
@@ -43,6 +45,8 @@ export function Backdrop({ name, seed, className, style }: BackdropProps) {
       return <WireMesa seed={seed} className={className} style={style} />;
     case 'flow-field':
       return <FlowField seed={seed} className={className} style={style} />;
+    case 'glyph-rain':
+      return <GlyphRain seed={seed} className={className} style={style} />;
     default:
       return null;
   }

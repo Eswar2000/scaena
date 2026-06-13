@@ -193,6 +193,31 @@ const BACKDROPS = [
       optionSelected: 'text-violet-200',
     },
   },
+  {
+    name: 'glyph-rain',
+    label: 'glyph-rain',
+    vibe: 'Cascading jade glyphs falling through a dark terminal void — code rain, restrained and cinematic.',
+    text: {
+      eyebrow: 'text-emerald-100/80',
+      headlineGradient: 'from-white to-emerald-100/75',
+      body: 'text-emerald-50/85',
+      label: 'text-emerald-100/55',
+      // medium shadow — dark backdrop with bright moving glyphs; text needs a soft lift
+      shadow:
+        '[filter:drop-shadow(0_2px_10px_rgba(2,10,8,0.7))_drop-shadow(0_1px_2px_rgba(2,10,8,0.55))]',
+    },
+    chip: {
+      // jade-tinted glass — picks up the leading-glyph colour, terminal vibe
+      surface:
+        'border-emerald-300/25 bg-emerald-950/55 text-emerald-50/95 hover:border-emerald-300/40 focus:border-emerald-300/50 focus:ring-emerald-300/25',
+      accent: 'text-emerald-300/85',
+      popup:
+        'border-emerald-300/25 bg-slate-950/90 text-emerald-50/95 shadow-[0_12px_40px_-10px_rgba(0,30,15,0.75)] ring-1 ring-emerald-300/15',
+      option: 'text-emerald-50/90 hover:bg-emerald-300/10',
+      optionActive: 'bg-emerald-300/15 text-white',
+      optionSelected: 'text-emerald-200',
+    },
+  },
 ] as const satisfies readonly BackdropEntry[];
 
 const DEFAULT_BACKDROP: BackdropName = 'kyoto-petals';
