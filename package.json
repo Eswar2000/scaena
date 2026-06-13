@@ -1,0 +1,25 @@
+{
+  "name": "scaena-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "scaena — drop-in scenic, animated backdrops for your hero sections.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspaces --if-present",
+    "build:lib": "npm run build --workspace=packages/scaena",
+    "build:web": "npm run build --workspace=apps/web",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
