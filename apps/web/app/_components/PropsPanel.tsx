@@ -7,6 +7,7 @@ import {
   type PropControl,
   type PropsValues,
 } from '../_lib/backdropPropsSchema';
+import { Dropdown } from './Dropdown';
 
 type Props = {
   /** Backdrop being tweaked. */
@@ -236,18 +237,13 @@ function FieldInput({
     case 'select': {
       const v = (typeof value === 'string' ? value : control.default) as string;
       return (
-        <select
+        <Dropdown
           id={id}
           value={v}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-md border border-white/15 bg-black/40 px-2 py-1 text-xs text-white outline-none focus:border-white/40"
-        >
-          {control.options.map((opt) => (
-            <option key={opt.value} value={opt.value} className="bg-slate-950">
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          options={control.options}
+          onChange={onChange}
+          ariaLabel={control.label}
+        />
       );
     }
     case 'color': {
