@@ -1,8 +1,10 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
-import { createMidnightMeteorRenderer } from './renderer';
+import { createMidnightMeteorRenderer, type MidnightMeteorOptions } from './renderer';
 
-export interface MidnightMeteorProps {
+export type { MidnightMeteorOptions } from './renderer';
+
+export interface MidnightMeteorProps extends MidnightMeteorOptions {
   seed?: number;
   className?: string;
   style?: CSSProperties;
@@ -22,10 +24,28 @@ const canvasStyle: CSSProperties = {
   height: '100%',
 };
 
-export function MidnightMeteor({ seed, className, style }: MidnightMeteorProps) {
+export function MidnightMeteor({
+  seed,
+  className,
+  style,
+  sky,
+  starDensity,
+  meteorRate,
+  nebula,
+  vignette,
+}: MidnightMeteorProps) {
   const renderer = useMemo(
-    () => createMidnightMeteorRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
-    [seed],
+    () =>
+      createMidnightMeteorRenderer(seed ?? Math.floor(Math.random() * 2 ** 31), {
+        sky,
+        starDensity,
+        meteorRate,
+        nebula,
+        vignette,
+      }),
+    // Options are baked into immutable scene structures (sprite caches, star
+    // layout) at construction time, so we rebuild the renderer on any change.
+    [seed, sky, starDensity, meteorRate, nebula, vignette],
   );
 
   const canvasRef = useCanvas({

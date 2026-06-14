@@ -48,6 +48,48 @@ const SUN_GLOW = 'rgba(255, 220, 185, 0.55)';
 // Mist near the horizon
 const MIST_COLOR = 'rgba(255, 215, 220, 0.45)';
 
+/** Stops for the vertical sky gradient (top → middle → bottom). */
+type SkyStops = readonly [string, string, string];
+
+/** Per-preset overrides for the entire "atmosphere" pass. */
+interface SkyPreset {
+  sky: SkyStops;
+  sunGlow: string;
+  sunGlowMid: string;
+  mist: string;
+  mistEdge: string;
+  topHaze: string;
+}
+
+const SKY_PRESETS: Record<'kyoto' | 'twilight' | 'midnight', SkyPreset> = {
+  kyoto: {
+    sky: [SKY_TOP, SKY_MID, SKY_BOTTOM],
+    sunGlow: SUN_GLOW,
+    sunGlowMid: 'rgba(255, 220, 185, 0.18)',
+    mist: MIST_COLOR,
+    mistEdge: 'rgba(255, 215, 220, 0.15)',
+    topHaze: 'rgba(255, 235, 215, 0.22)',
+  },
+  twilight: {
+    // Lavender → dusty plum — the moment just after sunset.
+    sky: ['#cbb8e3', '#9d83bf', '#5e4f86'],
+    sunGlow: 'rgba(255, 180, 200, 0.42)',
+    sunGlowMid: 'rgba(220, 150, 200, 0.15)',
+    mist: 'rgba(180, 160, 210, 0.40)',
+    mistEdge: 'rgba(180, 160, 210, 0.12)',
+    topHaze: 'rgba(220, 200, 240, 0.16)',
+  },
+  midnight: {
+    // Deep indigo with a faint petal-pink glow on the horizon.
+    sky: ['#0d1230', '#161a44', '#251a50'],
+    sunGlow: 'rgba(255, 170, 200, 0.22)',
+    sunGlowMid: 'rgba(180, 120, 200, 0.08)',
+    mist: 'rgba(110, 110, 180, 0.32)',
+    mistEdge: 'rgba(110, 110, 180, 0.08)',
+    topHaze: 'rgba(180, 160, 220, 0.10)',
+  },
+};
+
 // Sakura palette — each petal picks a (light, dark) pair for its interior gradient
 const PETAL_PALETTES: Array<[string, string]> = [
   ['255, 230, 238', '230, 150, 175'], // soft pink
@@ -56,6 +98,31 @@ const PETAL_PALETTES: Array<[string, string]> = [
   ['255, 235, 240', '210, 135, 165'], // dusty pink
   ['255, 245, 245', '230, 195, 200'], // near-white
 ];
+
+export interface KyotoPetalsOptions {
+  /** Petal-count multiplier (cap at ~250). Default: 1. */
+  density?: number;
+  /** Lateral wind-strength multiplier. Default: 1. */
+  wind?: number;
+  /** Petal fall-speed multiplier. Default: 1. */
+  fallSpeed?: number;
+  /** Atmosphere preset — controls sky, sun, mist, top haze. Default: 'kyoto'. */
+  sky?: 'kyoto' | 'twilight' | 'midnight';
+  /**
+   * Custom petal palette — array of `[lightRgb, darkRgb]` strings where each
+   * is a CSS-ready `"r, g, b"` triplet (no `rgb(...)` wrapper). The petal's
+   * inner radial gradient runs from light to dark.
+   * Default: a curated 5-shade sakura palette.
+   */
+  palette?: ReadonlyArray<readonly [string, string]>;
+}
+
+function resolvePetalPalette(
+  palette: KyotoPetalsOptions['palette'],
+): ReadonlyArray<readonly [string, string]> {
+  if (palette && palette.length > 0) return palette;
+  return PETAL_PALETTES;
+}
 
 /**
  * Sakura petal silhouette in unit space (centered at origin, fits in [-1, 1]).
@@ -126,38 +193,53 @@ function buildPetalSprite(palette: readonly [string, string]): HTMLCanvasElement
   return c;
 }
 
-let petalSprites: HTMLCanvasElement[] | null = null;
+// Sprite cache keyed by palette identity. Custom palettes get baked once and
+// reused across renderers; the default palette is the warm path.
+const petalSpriteCache = new WeakMap<
+  ReadonlyArray<readonly [string, string]>,
+  HTMLCanvasElement[]
+>();
+function getPetalSprites(
+  palette: ReadonlyArray<readonly [string, string]>,
+): HTMLCanvasElement[] {
+  let sprites = petalSpriteCache.get(palette);
+  if (!sprites) {
+    sprites = palette.map((p) => buildPetalSprite(p));
+    petalSpriteCache.set(palette, sprites);
+  }
+  return sprites;
+}
 let bokehSprite: HTMLCanvasElement | null = null;
-
-function ensureSprites() {
-  if (!petalSprites) {
-    petalSprites = PETAL_PALETTES.map((p) => buildPetalSprite(p));
+function ensureBokehSprite() {
+  if (bokehSprite) return;
+  // One soft circular bokeh sprite — colored at draw time via globalAlpha.
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const cx = c.getContext('2d');
+  if (cx) {
+    const g = cx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255, 240, 245, 0.9)');
+    g.addColorStop(0.5, 'rgba(255, 230, 240, 0.4)');
+    g.addColorStop(1, 'rgba(255, 220, 235, 0)');
+    cx.fillStyle = g;
+    cx.fillRect(0, 0, 64, 64);
   }
-  if (!bokehSprite) {
-    // One soft circular bokeh sprite — colored at draw time via globalAlpha.
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const cx = c.getContext('2d');
-    if (cx) {
-      const g = cx.createRadialGradient(32, 32, 0, 32, 32, 32);
-      g.addColorStop(0, 'rgba(255, 240, 245, 0.9)');
-      g.addColorStop(0.5, 'rgba(255, 230, 240, 0.4)');
-      g.addColorStop(1, 'rgba(255, 220, 235, 0)');
-      cx.fillStyle = g;
-      cx.fillRect(0, 0, 64, 64);
-    }
-    bokehSprite = c;
-  }
+  bokehSprite = c;
 }
 
-function createPetal(width: number, height: number, rand: () => number): Petal {
+function createPetal(
+  width: number,
+  height: number,
+  rand: () => number,
+  palette: ReadonlyArray<readonly [string, string]>,
+): Petal {
   // 4 depth bands. More near-camera than far, but each band is meaningful.
   const r = rand();
   const depth = r < 0.2 ? 0.08 + rand() * 0.15 : r < 0.55 ? 0.35 + rand() * 0.2 : r < 0.85 ? 0.6 + rand() * 0.2 : 0.82 + rand() * 0.18;
 
   const size = 4 + depth * 22;
-  const paletteIndex = Math.floor(rand() * PETAL_PALETTES.length);
-  const palette = PETAL_PALETTES[paletteIndex] ?? PETAL_PALETTES[0]!;
+  const paletteIndex = Math.floor(rand() * palette.length);
+  const entry = palette[paletteIndex] ?? palette[0]!;
 
   return {
     x: rand() * width,
@@ -174,8 +256,8 @@ function createPetal(width: number, height: number, rand: () => number): Petal {
     flutterFreq: 0.6 + rand() * 1.4,
     depth,
     paletteIndex,
-    colorLight: palette[0],
-    colorDark: palette[1],
+    colorLight: entry[0],
+    colorDark: entry[1],
     alpha: 0.55 + depth * 0.4,
   };
 }
@@ -185,15 +267,28 @@ export interface PetalsRenderer {
   setup: (frame: Omit<CanvasFrameContext, 'time' | 'delta'>) => void;
 }
 
-export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
+export function createKyotoPetalsRenderer(
+  seed: number,
+  options: KyotoPetalsOptions = {},
+): PetalsRenderer {
   const rand = createPrng(seed);
+  const palette = resolvePetalPalette(options.palette);
+  const densityMult = Math.max(0, options.density ?? 1);
+  const windMult = options.wind ?? 1;
+  const fallSpeedMult = Math.max(0, options.fallSpeed ?? 1);
+  const skyPreset = SKY_PRESETS[options.sky ?? 'kyoto'];
+  let petalSprites: HTMLCanvasElement[] = [];
   let petals: Petal[] = [];
 
   const buildPetals = (width: number, height: number) => {
     const area = width * height;
-    const target = Math.min(180, Math.floor(area / 7500));
+    const target = Math.min(
+      250,
+      Math.max(1, Math.floor((area / 7500) * densityMult)),
+    );
     const next: Petal[] = [];
-    for (let i = 0; i < target; i += 1) next.push(createPetal(width, height, rand));
+    for (let i = 0; i < target; i += 1)
+      next.push(createPetal(width, height, rand, palette));
     // Draw far first → near last (painter's algorithm for depth)
     next.sort((a, b) => a.depth - b.depth);
     petals = next;
@@ -201,9 +296,9 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
 
   const drawSky = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const sky = ctx.createLinearGradient(0, 0, 0, height);
-    sky.addColorStop(0, SKY_TOP);
-    sky.addColorStop(0.55, SKY_MID);
-    sky.addColorStop(1, SKY_BOTTOM);
+    sky.addColorStop(0, skyPreset.sky[0]);
+    sky.addColorStop(0.55, skyPreset.sky[1]);
+    sky.addColorStop(1, skyPreset.sky[2]);
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, width, height);
   };
@@ -214,9 +309,9 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
     const sy = -height * 0.15;
     const radius = Math.max(width, height) * 0.95;
     const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, radius);
-    grad.addColorStop(0, SUN_GLOW);
-    grad.addColorStop(0.4, 'rgba(255, 220, 185, 0.18)');
-    grad.addColorStop(1, 'rgba(255, 220, 185, 0)');
+    grad.addColorStop(0, skyPreset.sunGlow);
+    grad.addColorStop(0.4, skyPreset.sunGlowMid);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
   };
@@ -227,9 +322,9 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
     const top = height * 0.6;
     const bottom = height;
     const grad = ctx.createLinearGradient(0, top, 0, bottom);
-    grad.addColorStop(0, 'rgba(255, 215, 220, 0)');
-    grad.addColorStop(0.6, MIST_COLOR);
-    grad.addColorStop(1, 'rgba(255, 215, 220, 0.15)');
+    grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    grad.addColorStop(0.6, skyPreset.mist);
+    grad.addColorStop(1, skyPreset.mistEdge);
     ctx.fillStyle = grad;
     ctx.fillRect(0, top, width, bottom - top);
   };
@@ -239,8 +334,8 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
     const top = 0;
     const bottom = height * 0.4;
     const grad = ctx.createLinearGradient(0, top, 0, bottom);
-    grad.addColorStop(0, 'rgba(255, 235, 215, 0.22)');
-    grad.addColorStop(1, 'rgba(255, 235, 215, 0)');
+    grad.addColorStop(0, skyPreset.topHaze);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, top, width, bottom - top);
   };
@@ -256,7 +351,7 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
   };
 
   const drawDetailedPetal = (ctx: CanvasRenderingContext2D, p: Petal, flutter: number) => {
-    const sprite = petalSprites?.[p.paletteIndex];
+    const sprite = petalSprites[p.paletteIndex];
     if (!sprite) return;
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -269,7 +364,8 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
 
   return {
     setup({ width, height }) {
-      ensureSprites();
+      ensureBokehSprite();
+      petalSprites = getPetalSprites(palette);
       buildPetals(width, height);
     },
 
@@ -278,8 +374,9 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
       drawSunGlow(ctx, width, height);
       drawMistBand(ctx, width, height);
 
-      // Wind — slow lateral breeze that changes direction over ~24s
-      const wind = reducedMotion ? 0 : Math.sin(time * 0.26) * 38;
+      // Wind — slow lateral breeze that changes direction over ~24s. The
+      // `wind` option scales the lateral force; 0 stills the air entirely.
+      const wind = reducedMotion ? 0 : Math.sin(time * 0.26) * 38 * windMult;
 
       // Bokeh layer first (additive, behind everything else)
       ctx.save();
@@ -289,7 +386,7 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
         if (!reducedMotion) {
           const sway = Math.sin(time * p.swayFreq + p.swayPhase) * p.swayAmp;
           p.x += (wind * p.driftFactor + sway * 0.05) * delta;
-          p.y += p.fallSpeed * delta;
+          p.y += p.fallSpeed * fallSpeedMult * delta;
           if (p.y > height + p.size * 2) {
             p.y = -p.size * 2;
             p.x = rand() * width;
@@ -307,7 +404,7 @@ export function createKyotoPetalsRenderer(seed: number): PetalsRenderer {
         if (!reducedMotion) {
           const sway = Math.sin(time * p.swayFreq + p.swayPhase) * p.swayAmp;
           p.x += (wind * p.driftFactor + sway * 0.05) * delta;
-          p.y += p.fallSpeed * delta;
+          p.y += p.fallSpeed * fallSpeedMult * delta;
           p.rotation += p.rotationSpeed * delta;
           if (p.y > height + p.size * 2) {
             p.y = -p.size * 2;

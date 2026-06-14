@@ -1,8 +1,10 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
-import { createWireMesaRenderer } from './renderer';
+import { createWireMesaRenderer, type WireMesaOptions } from './renderer';
 
-export interface WireMesaProps {
+export type { WireMesaOptions } from './renderer';
+
+export interface WireMesaProps extends WireMesaOptions {
   seed?: number;
   className?: string;
   style?: CSSProperties;
@@ -22,10 +24,28 @@ const canvasStyle: CSSProperties = {
   height: '100%',
 };
 
-export function WireMesa({ seed, className, style }: WireMesaProps) {
+export function WireMesa({
+  seed,
+  className,
+  style,
+  palette,
+  scrollSpeed,
+  terrainHeight,
+  fogDistance,
+  cameraBob,
+}: WireMesaProps) {
   const renderer = useMemo(
-    () => createWireMesaRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
-    [seed],
+    () =>
+      createWireMesaRenderer(seed ?? Math.floor(Math.random() * 2 ** 31), {
+        palette,
+        scrollSpeed,
+        terrainHeight,
+        fogDistance,
+        cameraBob,
+      }),
+    // The terrain height map, background bake, and palette tables are all
+    // computed at setup time, so any option change requires a full rebuild.
+    [seed, palette, scrollSpeed, terrainHeight, fogDistance, cameraBob],
   );
 
   const canvasRef = useCanvas({

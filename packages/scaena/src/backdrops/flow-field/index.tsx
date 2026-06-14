@@ -1,8 +1,10 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
-import { createFlowFieldRenderer } from './renderer';
+import { createFlowFieldRenderer, type FlowFieldOptions } from './renderer';
 
-export interface FlowFieldProps {
+export type { FlowFieldOptions } from './renderer';
+
+export interface FlowFieldProps extends FlowFieldOptions {
   seed?: number;
   className?: string;
   style?: CSSProperties;
@@ -22,10 +24,28 @@ const canvasStyle: CSSProperties = {
   height: '100%',
 };
 
-export function FlowField({ seed, className, style }: FlowFieldProps) {
+export function FlowField({
+  seed,
+  className,
+  style,
+  palette,
+  particleCount,
+  speed,
+  trailLength,
+  lineWidth,
+}: FlowFieldProps) {
   const renderer = useMemo(
-    () => createFlowFieldRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
-    [seed],
+    () =>
+      createFlowFieldRenderer(seed ?? Math.floor(Math.random() * 2 ** 31), {
+        palette,
+        particleCount,
+        speed,
+        trailLength,
+        lineWidth,
+      }),
+    // The particle pool, fade sprite, and palette are all baked at setup
+    // time \u2014 options must rebuild the renderer to take effect.
+    [seed, palette, particleCount, speed, trailLength, lineWidth],
   );
 
   const canvasRef = useCanvas({

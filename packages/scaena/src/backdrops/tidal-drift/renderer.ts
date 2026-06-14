@@ -94,6 +94,47 @@ const BAND_TINTS: ReadonlyArray<readonly [number, number, number]> = [
   [150, 220, 230], // bright crest highlight (sparingly used)
 ];
 
+/** Named ocean presets. Each preset packages a background gradient + matching
+ *  band tints so changing it repaints both layers cohesively. */
+interface OceanPalette {
+  bgDeep: string;
+  bgMid: string;
+  bgCenter: string;
+  bandTints: ReadonlyArray<readonly [number, number, number]>;
+}
+const OCEAN_PALETTES: Record<'atlantic' | 'tropical' | 'storm', OceanPalette> = {
+  atlantic: {
+    bgDeep: BG_DEEP,
+    bgMid: BG_MID,
+    bgCenter: BG_CENTER,
+    bandTints: BAND_TINTS,
+  },
+  tropical: {
+    // Warm teal-cyan that reads as "Caribbean shallows seen from a seaplane".
+    bgDeep: '#053644',
+    bgMid: '#0a6680',
+    bgCenter: '#13a0b8',
+    bandTints: [
+      [180, 245, 240],
+      [120, 220, 220],
+      [80, 180, 200],
+      [210, 250, 240],
+    ],
+  },
+  storm: {
+    // Slate-grey-blue with steel-tinted crests — like the North Sea on a grey day.
+    bgDeep: '#0a1620',
+    bgMid: '#162935',
+    bgCenter: '#21424f',
+    bandTints: [
+      [165, 185, 195],
+      [110, 140, 160],
+      [70, 100, 125],
+      [185, 205, 215],
+    ],
+  },
+};
+
 const BAND_SPRITE_W = 512; // long axis — stretched per band
 const BAND_SPRITE_H = 64; // soft falloff axis
 
@@ -151,11 +192,32 @@ function buildCloudSprite(): HTMLCanvasElement {
   return c;
 }
 
-let bandSprites: HTMLCanvasElement[] | null = null;
+let bandSpritesDefault: HTMLCanvasElement[] | null = null;
 let cloudSprite: HTMLCanvasElement | null = null;
-function ensureSprites() {
-  if (!bandSprites) bandSprites = BAND_TINTS.map((rgb) => buildBandSprite(rgb));
+
+/** Cache band sprites per palette identity so swapping `palette` doesn't
+ *  re-bake the sprites every frame, but custom palettes still get fresh art. */
+const bandSpriteCache = new WeakMap<OceanPalette, HTMLCanvasElement[]>();
+
+function ensureCloudSprite() {
   if (!cloudSprite) cloudSprite = buildCloudSprite();
+}
+
+function getBandSprites(palette: OceanPalette): HTMLCanvasElement[] {
+  // Default palette path also seeds the module-level fallback used to be
+  // shared with the legacy single-palette codepath.
+  if (palette === OCEAN_PALETTES.atlantic) {
+    if (!bandSpritesDefault) {
+      bandSpritesDefault = palette.bandTints.map((rgb) => buildBandSprite(rgb));
+      bandSpriteCache.set(palette, bandSpritesDefault);
+    }
+    return bandSpritesDefault;
+  }
+  const cached = bandSpriteCache.get(palette);
+  if (cached) return cached;
+  const next = palette.bandTints.map((rgb) => buildBandSprite(rgb));
+  bandSpriteCache.set(palette, next);
+  return next;
 }
 
 /* ───────── renderer ───────── */
@@ -165,7 +227,25 @@ export interface TidalDriftRenderer {
   setup: (frame: Omit<CanvasFrameContext, 'time' | 'delta'>) => void;
 }
 
-export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
+export interface TidalDriftOptions {
+  /** Ocean colour preset (background + matching band tints). */
+  palette?: 'atlantic' | 'tropical' | 'storm';
+  /** Multiplier on wave-band drift speed. 0 = frozen waves. Default 1. */
+  waveSpeed?: number;
+  /** Multiplier on cloud-shadow darkness. 0 = clear sky. Default 1. */
+  cloudOpacity?: number;
+  /** Soft corner darkening overlay. Default true. */
+  vignette?: boolean;
+}
+
+export function createTidalDriftRenderer(
+  seed: number,
+  options: TidalDriftOptions = {},
+): TidalDriftRenderer {
+  const palette = OCEAN_PALETTES[options.palette ?? 'atlantic'] ?? OCEAN_PALETTES.atlantic;
+  const waveSpeedMult = Math.max(0, options.waveSpeed ?? 1);
+  const cloudOpacityMult = Math.max(0, options.cloudOpacity ?? 1);
+  const showVignette = options.vignette ?? true;
   // Scene PRNG is rebuilt fresh in buildScene so resize / DPR change never
   // reshuffles the wave or cloud layout. We don't need a long-lived stateful
   // PRNG anymore — there's no per-frame randomness now that glints are gone.
@@ -297,9 +377,9 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
     const inner = Math.min(width, height) * 0.15;
     const outer = Math.hypot(width, height) * 0.6;
     const g = ctx.createRadialGradient(cx, cy, inner, cx, cy, outer);
-    g.addColorStop(0, BG_CENTER);
-    g.addColorStop(0.6, BG_MID);
-    g.addColorStop(1, BG_DEEP);
+    g.addColorStop(0, palette.bgCenter);
+    g.addColorStop(0.6, palette.bgMid);
+    g.addColorStop(1, palette.bgDeep);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, width, height);
   };
@@ -359,7 +439,8 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
     band: Band,
     time: number,
   ) => {
-    const sprite = bandSprites?.[band.paletteIndex];
+    const sprites = getBandSprites(palette);
+    const sprite = sprites[band.paletteIndex];
     if (!sprite) return;
 
     // Perpendicular offset for this frame, wrapped to one spacing period.
@@ -410,6 +491,7 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
     width: number,
     height: number,
     time: number,
+    opacityMult: number,
   ) => {
     if (!cloudSprite || clouds.length === 0) return;
     ctx.save();
@@ -425,9 +507,9 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
       const breath =
         0.7 +
         0.3 * Math.sin(2 * Math.PI * cloud.alphaFreq * time + cloud.alphaPhase);
-      const alpha = cloud.alpha * breath;
+      const alpha = cloud.alpha * breath * opacityMult;
       if (alpha < 0.01) continue;
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = Math.min(1, alpha);
       ctx.setTransform(1, 0, 0, 1, cx, cy);
       ctx.rotate(cloud.rotation);
       ctx.drawImage(
@@ -445,7 +527,9 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
 
   return {
     setup({ width, height, dpr }) {
-      ensureSprites();
+      ensureCloudSprite();
+      // Warm the band sprite cache for the active palette.
+      getBandSprites(palette);
       buildScene(width, height);
       bakeStatic(width, height, dpr);
     },
@@ -469,22 +553,26 @@ export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
 
       // Reduced-motion: freeze time so bands & clouds are static, but still
       // draw a complete frame (the scene is beautiful at rest).
-      const t = reducedMotion ? 0 : time;
+      const t = reducedMotion ? 0 : time * waveSpeedMult;
 
       // 2. Wave bands (and haze bands) — drawn back-to-front; haze last so it
       //    sits on top of crisper bands as atmospheric "softening".
-      //    Our order: hero bands first (indices 0–3), then haze (indices 4–5).
-      //    Each band's opacity breathes on a slow cycle (swell-set feel).
+      //    Each band's drift + breathing is scaled by `waveSpeed` via `t`.
       for (const band of bands) {
         drawBand(ctx, width, height, band, t);
       }
 
       // 3. Cloud shadows — large soft dark cells drifting overhead. Drawn
       //    on top of the water so they actually dim the bands & background.
-      drawClouds(ctx, width, height, t);
+      //    `cloudOpacity` scales their darkening; 0 hides them entirely.
+      if (cloudOpacityMult > 0) {
+        drawClouds(ctx, width, height, t, cloudOpacityMult);
+      }
 
-      // 4. Vignette (always last)
-      drawVignette(ctx, width, height);
+      // 4. Vignette (always last) — optional.
+      if (showVignette) {
+        drawVignette(ctx, width, height);
+      }
     },
   };
 }

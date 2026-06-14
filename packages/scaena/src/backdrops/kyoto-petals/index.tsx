@@ -1,8 +1,10 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
-import { createKyotoPetalsRenderer } from './renderer';
+import { createKyotoPetalsRenderer, type KyotoPetalsOptions } from './renderer';
 
-export interface KyotoPetalsProps {
+export type { KyotoPetalsOptions } from './renderer';
+
+export interface KyotoPetalsProps extends KyotoPetalsOptions {
   seed?: number;
   className?: string;
   style?: CSSProperties;
@@ -22,10 +24,28 @@ const canvasStyle: CSSProperties = {
   height: '100%',
 };
 
-export function KyotoPetals({ seed, className, style }: KyotoPetalsProps) {
+export function KyotoPetals({
+  seed,
+  className,
+  style,
+  density,
+  wind,
+  fallSpeed,
+  sky,
+  palette,
+}: KyotoPetalsProps) {
   const renderer = useMemo(
-    () => createKyotoPetalsRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
-    [seed],
+    () =>
+      createKyotoPetalsRenderer(seed ?? Math.floor(Math.random() * 2 ** 31), {
+        density,
+        wind,
+        fallSpeed,
+        sky,
+        palette,
+      }),
+    // Reinitialising on every option change is intentional: petal layout +
+    // sprite cache bake the options into immutable structures.
+    [seed, density, wind, fallSpeed, sky, palette],
   );
 
   const canvasRef = useCanvas({

@@ -1,20 +1,36 @@
 'use client';
 
+import { useMemo } from 'react';
 import { type BackdropId, getBackdrop } from '../_lib/backdrops';
+import {
+  formatPropsLiteral,
+  pruneDefaults,
+  type PropsValues,
+} from '../_lib/backdropPropsSchema';
 import { CopyButton } from './CopyButton';
 
 type Props = {
   active: BackdropId;
+  /** Same raw values the Hero is using — so the snippet stays in sync. */
+  propsValues: PropsValues;
 };
 
 const INSTALL = `npm install scaena`;
 
-const USAGE = (name: BackdropId) => `import { Backdrop } from 'scaena';
+/** Renders the `<Backdrop ... />` line with whatever props are non-default. */
+function backdropTag(name: BackdropId, props: PropsValues): string {
+  const literal = formatPropsLiteral(props, '      ');
+  if (!literal) return `<Backdrop name="${name}" />`;
+  return `<Backdrop name="${name}" props={${literal}} />`;
+}
+
+const USAGE = (name: BackdropId, props: PropsValues) =>
+  `import { Backdrop } from 'scaena';
 
 export default function Hero() {
   return (
     <section className="relative h-screen">
-      <Backdrop name="${name}" />
+      ${backdropTag(name, props)}
       <h1 className="relative z-10">Welcome</h1>
     </section>
   );
@@ -22,12 +38,17 @@ export default function Hero() {
 
 /**
  * Install / usage code section. The usage snippet automatically reflects
- * whatever backdrop is currently active in the hero, so the docs and the
- * demo always stay in sync.
+ * whatever backdrop is currently active in the hero — including any
+ * customizations the user dialed in from the Customize panel — so the
+ * docs and the demo always stay in sync.
  */
-export function UsageSection({ active }: Props) {
+export function UsageSection({ active, propsValues }: Props) {
   const current = getBackdrop(active);
-  const usage = USAGE(active);
+  const liveProps = useMemo(
+    () => pruneDefaults(active, propsValues),
+    [active, propsValues],
+  );
+  const usage = useMemo(() => USAGE(active, liveProps), [active, liveProps]);
 
   return (
     <section

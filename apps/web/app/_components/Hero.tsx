@@ -1,28 +1,72 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Backdrop } from 'scaena';
 import { type BackdropId, getBackdrop } from '../_lib/backdrops';
+import {
+  formatPropsLiteral,
+  pruneDefaults,
+  type PropsValues,
+} from '../_lib/backdropPropsSchema';
 import { BackdropTabs } from './BackdropTabs';
 import { CopyButton } from './CopyButton';
+import { PropsPanel } from './PropsPanel';
 
 type Props = {
   /** Currently active backdrop. */
   active: BackdropId;
   /** Fired when the user picks a different backdrop. */
   onActiveChange: (next: BackdropId) => void;
+  /** Current raw values for the active backdrop's props panel. */
+  propsValues: PropsValues;
+  /** Fired when the user tweaks any control in the props panel. */
+  onPropsChange: (next: PropsValues) => void;
+  /** Reset the active backdrop's props to library defaults. */
+  onPropsReset: () => void;
 };
 
 /**
  * The hero. Holds the live backdrop, the headline, and a small reactive
- * control row (tab switcher + copy snippet). Theme classes are sourced
- * from the active backdrop entry so the hero re-tints itself the moment
- * the user picks a new scene.
+ * control row (tab switcher + customize panel + copy snippet). Theme
+ * classes are sourced from the active backdrop entry so the hero re-tints
+ * itself the moment the user picks a new scene.
  */
-export function Hero({ active, onActiveChange }: Props) {
+export function Hero({
+  active,
+  onActiveChange,
+  propsValues,
+  onPropsChange,
+  onPropsReset,
+}: Props) {
   const current = useMemo(() => getBackdrop(active), [active]);
   const t = current.text;
   const c = current.chip;
+
+  // Stable seed per backdrop. Without this, omitting `seed` makes the
+  // renderer fall back to `Math.random()` inside its `useMemo`, and since
+  // that `useMemo` also depends on the option props, every slider tweak
+  // would re-roll the whole scene. Pinning a seed per backdrop keeps the
+  // layout consistent while editing — picking a different backdrop still
+  // gives a fresh, randomised look the first time you visit it.
+  const seedsRef = useRef<Partial<Record<BackdropId, number>>>({});
+  if (seedsRef.current[active] === undefined) {
+    seedsRef.current[active] = Math.floor(Math.random() * 2 ** 31);
+  }
+  const seed = seedsRef.current[active] as number;
+
+  // Strip values that match library defaults so we don't pass redundant
+  // props to the backdrop or render them in the snippet.
+  const liveProps = useMemo(
+    () => pruneDefaults(active, propsValues),
+    [active, propsValues],
+  );
+
+  const snippet = useMemo(() => {
+    const literal = formatPropsLiteral(liveProps, '');
+    return literal
+      ? `<Backdrop name="${active}" props={${literal}} />`
+      : `<Backdrop name="${active}" />`;
+  }, [active, liveProps]);
 
   // Track whether the user has scrolled past the fold — hide the scroll
   // cue once they're clearly engaged.
@@ -33,14 +77,15 @@ export function Hero({ active, onActiveChange }: Props) {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  const snippet = `<Backdrop name="${active}" />`;
-
   return (
     <section
       id="hero"
       className="relative isolate flex min-h-[100svh] w-full items-center justify-center overflow-hidden py-20"
     >
-      <Backdrop name={active} />
+      {/* `as never` here: the Backdrop union narrows `props` per `name`, but
+          our schema-driven values are typed loosely as `Record<string, unknown>`.
+          The schema guarantees keys are valid for the active backdrop. */}
+      <Backdrop name={active} seed={seed} props={liveProps as never} />
 
       <div
         key={active}
@@ -83,8 +128,15 @@ export function Hero({ active, onActiveChange }: Props) {
             containerClassName={c.surface}
           />
 
+          <PropsPanel
+            active={active}
+            values={propsValues}
+            onChange={onPropsChange}
+            onReset={onPropsReset}
+          />
+
           <pre
-            className={`inline-flex items-center gap-3 rounded-lg border px-3.5 py-2 text-left text-sm backdrop-blur ${c.surface}`}
+            className={`inline-flex max-w-full items-start gap-3 overflow-x-auto rounded-lg border px-3.5 py-2 text-left text-sm backdrop-blur ${c.surface}`}
           >
             <code className="whitespace-pre">{snippet}</code>
             <CopyButton

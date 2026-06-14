@@ -1,8 +1,10 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
-import { createGlyphRainRenderer } from './renderer';
+import { createGlyphRainRenderer, type GlyphRainOptions } from './renderer';
 
-export interface GlyphRainProps {
+export type { GlyphRainOptions } from './renderer';
+
+export interface GlyphRainProps extends GlyphRainOptions {
   seed?: number;
   className?: string;
   style?: CSSProperties;
@@ -22,10 +24,32 @@ const canvasStyle: CSSProperties = {
   height: '100%',
 };
 
-export function GlyphRain({ seed, className, style }: GlyphRainProps) {
+export function GlyphRain({
+  seed,
+  className,
+  style,
+  speedRange,
+  density,
+  trailLength,
+  glyphs,
+  cellSize,
+  headColor,
+  bodyColor,
+}: GlyphRainProps) {
   const renderer = useMemo(
-    () => createGlyphRainRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
-    [seed],
+    () =>
+      createGlyphRainRenderer(seed ?? Math.floor(Math.random() * 2 ** 31), {
+        speedRange,
+        density,
+        trailLength,
+        glyphs,
+        cellSize,
+        headColor,
+        bodyColor,
+      }),
+    // Reinitialising on every option change is intentional: stream layout +
+    // glyph alphabet bake the options into immutable per-instance state.
+    [seed, speedRange, density, trailLength, glyphs, cellSize, headColor, bodyColor],
   );
 
   const canvasRef = useCanvas({

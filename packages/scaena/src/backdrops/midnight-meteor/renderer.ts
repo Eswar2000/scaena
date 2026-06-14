@@ -70,6 +70,34 @@ const SKY_BOTTOM = '#0d0b2e';
 // Nebula palette — deep, low-saturation tones that read as "atmospheric depth"
 const NEBULA_COLORS = ['62, 38, 110', '32, 60, 110', '110, 38, 80', '40, 80, 130', '80, 30, 90'];
 
+/** Named sky presets. Each one packages a sky gradient + matching nebula tints
+ *  so changing `sky` repaints the whole scene cohesively (sky + drift layer). */
+interface SkyPreset {
+  top: string;
+  bottom: string;
+  /** Per-cloud rgb tints for the additive nebula pass. */
+  nebulaColors: ReadonlyArray<string>;
+}
+const SKY_PRESETS: Record<'midnight' | 'abyss' | 'storm', SkyPreset> = {
+  midnight: {
+    top: SKY_TOP,
+    bottom: SKY_BOTTOM,
+    nebulaColors: NEBULA_COLORS,
+  },
+  abyss: {
+    // Almost black sky with deep violet undertone — for that pitch-dark space feel.
+    top: '#04030f',
+    bottom: '#070514',
+    nebulaColors: ['90, 30, 140', '40, 20, 100', '120, 30, 90', '30, 30, 130', '70, 20, 110'],
+  },
+  storm: {
+    // Cooler, steelier blues — like a moonless winter night above the ocean.
+    top: '#06121f',
+    bottom: '#0a1830',
+    nebulaColors: ['40, 90, 150', '20, 70, 130', '60, 100, 170', '30, 60, 110', '80, 110, 160'],
+  },
+};
+
 const MAX_METEORS = 5;
 const TRAIL_MAX_POINTS = 64;
 const TRAIL_SAMPLE_INTERVAL = 1 / 120; // sample more often → smoother ribbon at any framerate
@@ -203,7 +231,28 @@ export interface MeteorRenderer {
   setup: (frame: Omit<CanvasFrameContext, 'time' | 'delta'>) => void;
 }
 
-export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
+export interface MidnightMeteorOptions {
+  /** Sky + matching nebula preset. */
+  sky?: 'midnight' | 'abyss' | 'storm';
+  /** Multiplier on the procedural star count. Default 1 (≈320 stars max). */
+  starDensity?: number;
+  /** Meteor spawn-rate multiplier. 0 = no new meteors. Default 1. */
+  meteorRate?: number;
+  /** Show drifting nebula clouds + Milky-Way glow. Default true. */
+  nebula?: boolean;
+  /** Soft corner-darkening overlay. Default true. */
+  vignette?: boolean;
+}
+
+export function createMidnightMeteorRenderer(
+  seed: number,
+  options: MidnightMeteorOptions = {},
+): MeteorRenderer {
+  const skyPreset = SKY_PRESETS[options.sky ?? 'midnight'] ?? SKY_PRESETS.midnight;
+  const starDensity = Math.max(0.05, options.starDensity ?? 1);
+  const meteorRate = Math.max(0, options.meteorRate ?? 1);
+  const showNebula = options.nebula ?? true;
+  const showVignette = options.vignette ?? true;
   // Two independent PRNGs:
   //   - `rand` (stateful) drives transient stuff: meteor spawn properties, timing.
   //   - `buildScene` creates a FRESH scene PRNG from `seed` on every rebuild,
@@ -263,12 +312,16 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     //    composition has visible color but doesn't feel busy.
     const nebulaCount = 4 + Math.floor(srand() * 3);
     nebulas = [];
+    const nebulaPalette = skyPreset.nebulaColors;
     for (let i = 0; i < nebulaCount; i += 1) {
       nebulas.push({
         cx: 0.15 + srand() * 0.7,
         cy: 0.15 + srand() * 0.7,
         radius: Math.max(width, height) * (0.35 + srand() * 0.4),
-        color: NEBULA_COLORS[Math.floor(srand() * NEBULA_COLORS.length)] ?? NEBULA_COLORS[0]!,
+        color:
+          nebulaPalette[Math.floor(srand() * nebulaPalette.length)] ??
+          nebulaPalette[0] ??
+          NEBULA_COLORS[0]!,
         alpha: 0.18 + srand() * 0.18,
       });
     }
@@ -278,10 +331,15 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
     mwOffset = (srand() - 0.5) * height * 0.3 + height * 0.45; // band crosses near vertical center
     mwThickness = Math.min(width, height) * (0.22 + srand() * 0.08);
 
-    // ── Stars: density scales with area. Capped at 320 — high enough for a dense
-    //    sky, low enough to leave plenty of frame budget for meteors + post-FX.
+    // ── Stars: density scales with area. Capped at 320 × starDensity —
+    //    high enough for a dense sky, low enough to leave plenty of frame
+    //    budget for meteors + post-FX. `starDensity` scales both the cap
+    //    and the per-area count so dialling it up keeps proportions sane.
     const area = width * height;
-    const total = Math.min(320, Math.floor(area / 3600));
+    const total = Math.min(
+      Math.round(320 * starDensity),
+      Math.floor((area / 3600) * starDensity),
+    );
 
     // 8 cluster centers for "star clusters" (60% of stars are clustered)
     const clusters: Array<{ cx: number; cy: number; spread: number }> = [];
@@ -386,8 +444,8 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
 
   const drawSky = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const sky = ctx.createLinearGradient(0, 0, 0, height);
-    sky.addColorStop(0, SKY_TOP);
-    sky.addColorStop(1, SKY_BOTTOM);
+    sky.addColorStop(0, skyPreset.top);
+    sky.addColorStop(1, skyPreset.bottom);
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, width, height);
   };
@@ -810,8 +868,13 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
    *  oversized by `NEBULA_DRIFT_PADDING` on every side so the bitmap can translate
    *  freely each frame without ever exposing a transparent edge inside the visible
    *  canvas. Drawn with `screen` blend over the backplate every frame at a slow
-   *  Lissajous offset — that's the "drifting cosmic dust" effect. */
+   *  Lissajous offset — that's the "drifting cosmic dust" effect.
+   *  Skipped entirely when `options.nebula` is false. */
   const bakeDriftLayer = (width: number, height: number, dpr: number) => {
+    if (!showNebula) {
+      driftCache = null;
+      return;
+    }
     const padded = NEBULA_DRIFT_PADDING * 2;
     const cache = document.createElement('canvas');
     cache.width = Math.max(1, Math.floor((width + padded) * dpr));
@@ -835,8 +898,12 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
   /** Build the **vignette** cache: corner-darken overlay on a TRANSPARENT canvas.
    *  Blitted over the animated layers (sky → drift → hero stars → twinkle) but
    *  UNDER meteors, matching the original z-order so meteor heads still glow
-   *  brightly even in the darkened corners. */
+   *  brightly even in the darkened corners. Skipped when `options.vignette` is false. */
   const bakeVignette = (width: number, height: number, dpr: number) => {
+    if (!showVignette) {
+      vignetteCache = null;
+      return;
+    }
     const cache = document.createElement('canvas');
     cache.width = Math.max(1, Math.floor(width * dpr));
     cache.height = Math.max(1, Math.floor(height * dpr));
@@ -907,8 +974,8 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
           height + NEBULA_DRIFT_PADDING * 2,
         );
         ctx.restore();
-      } else {
-        // Cache missed — fall back to live draw at the canvas origin.
+      } else if (showNebula) {
+        // Cache missed (and the user wants nebula) — fall back to live draw.
         drawNebulas(ctx, width, height);
         drawMilkyWayGlow(ctx, width, height);
       }
@@ -920,10 +987,10 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
       //    present, just stationary.
       drawHeroStarsLive(ctx, width, height, reducedMotion ? 0 : time);
 
-      // 4. Vignette over everything except meteors.
+      // 4. Vignette over everything except meteors. Skipped when disabled.
       if (vignetteCache) {
         ctx.drawImage(vignetteCache, 0, 0, width, height);
-      } else {
+      } else if (showVignette) {
         drawVignette(ctx, width, height);
       }
 
@@ -934,11 +1001,14 @@ export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
       //    Drawn before meteors so meteor head bloom always renders on top.
       drawTwinkle(ctx, width, height, time);
 
-      // 6. Spawn meteors
-      timeToNextMeteor -= delta;
-      if (timeToNextMeteor <= 0 && meteors.length < MAX_METEORS) {
-        meteors.push(spawnMeteor(width, height, rand));
-        timeToNextMeteor = 2.0 + rand() * 3.0;
+      // 6. Spawn meteors. `meteorRate` scales spawn frequency — 0 disables
+      //    new spawns entirely (existing ones still finish their arc).
+      if (meteorRate > 0) {
+        timeToNextMeteor -= delta * meteorRate;
+        if (timeToNextMeteor <= 0 && meteors.length < MAX_METEORS) {
+          meteors.push(spawnMeteor(width, height, rand));
+          timeToNextMeteor = 2.0 + rand() * 3.0;
+        }
       }
 
       // 7. Update + draw meteors
