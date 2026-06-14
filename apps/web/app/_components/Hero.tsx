@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Backdrop } from 'scaena';
 import { type BackdropId, getBackdrop } from '../_lib/backdrops';
 import {
@@ -42,6 +42,18 @@ export function Hero({
   const t = current.text;
   const c = current.chip;
 
+  // Stable seed per backdrop. Without this, omitting `seed` makes the
+  // renderer fall back to `Math.random()` inside its `useMemo`, and since
+  // that `useMemo` also depends on the option props, every slider tweak
+  // would re-roll the whole scene. Pinning a seed per backdrop keeps the
+  // layout consistent while editing — picking a different backdrop still
+  // gives a fresh, randomised look the first time you visit it.
+  const seedsRef = useRef<Partial<Record<BackdropId, number>>>({});
+  if (seedsRef.current[active] === undefined) {
+    seedsRef.current[active] = Math.floor(Math.random() * 2 ** 31);
+  }
+  const seed = seedsRef.current[active] as number;
+
   // Strip values that match library defaults so we don't pass redundant
   // props to the backdrop or render them in the snippet.
   const liveProps = useMemo(
@@ -73,7 +85,7 @@ export function Hero({
       {/* `as never` here: the Backdrop union narrows `props` per `name`, but
           our schema-driven values are typed loosely as `Record<string, unknown>`.
           The schema guarantees keys are valid for the active backdrop. */}
-      <Backdrop name={active} props={liveProps as never} />
+      <Backdrop name={active} seed={seed} props={liveProps as never} />
 
       <div
         key={active}
