@@ -165,6 +165,9 @@ export interface TidalDriftRenderer {
   setup: (frame: Omit<CanvasFrameContext, 'time' | 'delta'>) => void;
 }
 
+// biome-ignore lint/complexity/noBannedTypes: deliberate placeholder — will gain keys later
+export interface TidalDriftOptions {}
+
 export function createTidalDriftRenderer(seed: number): TidalDriftRenderer {
   // Scene PRNG is rebuilt fresh in buildScene so resize / DPR change never
   // reshuffles the wave or cloud layout. We don't need a long-lived stateful

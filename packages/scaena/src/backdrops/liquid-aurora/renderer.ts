@@ -70,7 +70,68 @@ const AURORA_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
   [90, 230, 200], // mint
 ];
 
+// Named alternate palettes. Each list is a small set of RGB tuples that
+// reads well against the deep-night background under 'screen' blending.
+const NAMED_PALETTES: Record<
+  'aurora' | 'sunset' | 'oceanic' | 'plasma',
+  ReadonlyArray<readonly [number, number, number]>
+> = {
+  aurora: AURORA_PALETTE,
+  sunset: [
+    [255, 150, 100], // coral
+    [255, 110, 130], // rose
+    [240, 90, 180], // magenta
+    [180, 90, 220], // violet
+    [255, 190, 120], // peach
+  ],
+  oceanic: [
+    [60, 180, 220], // sky-cyan
+    [70, 140, 220], // azure
+    [40, 220, 200], // teal
+    [60, 90, 200], // deep blue
+    [110, 220, 240], // ice
+  ],
+  plasma: [
+    [255, 90, 200], // hot pink
+    [180, 80, 255], // violet
+    [255, 130, 90], // ember
+    [120, 90, 255], // electric indigo
+    [255, 200, 90], // gold
+  ],
+};
+
 const BLOB_SPRITE_SIZE = 256;
+
+export interface LiquidAuroraOptions {
+  /** Number of color blobs. Default: 6 (4 on viewports under ~480px). */
+  blobCount?: number;
+  /** Animation speed multiplier (drift, breathing, rotation). Default: 1. */
+  speed?: number;
+  /** Blob size multiplier — scales radius relative to min(width, height). Default: 1. */
+  blobScale?: number;
+  /**
+   * Palette — a named preset, or a custom array of `[r, g, b]` tuples (0..255).
+   * Each blob picks one entry at random; overlapping blobs cross-mix under
+   * a `screen` composite operator.
+   * Default: `'aurora'`.
+   */
+  palette?:
+    | 'aurora'
+    | 'sunset'
+    | 'oceanic'
+    | 'plasma'
+    | ReadonlyArray<readonly [number, number, number]>;
+  /** Render the dark radial vignette overlay. Default: true. */
+  vignette?: boolean;
+}
+
+function resolvePalette(
+  palette: LiquidAuroraOptions['palette'],
+): ReadonlyArray<readonly [number, number, number]> {
+  if (!palette) return AURORA_PALETTE;
+  if (typeof palette === 'string') return NAMED_PALETTES[palette] ?? AURORA_PALETTE;
+  return palette.length > 0 ? palette : AURORA_PALETTE;
+}
 
 /**
  * Pre-render one circular gradient sprite per palette color. The falloff is
@@ -97,10 +158,22 @@ function buildBlobSprite(rgb: readonly [number, number, number]): HTMLCanvasElem
   return c;
 }
 
-let blobSprites: HTMLCanvasElement[] | null = null;
-function ensureSprites() {
-  if (blobSprites) return;
-  blobSprites = AURORA_PALETTE.map((rgb) => buildBlobSprite(rgb));
+// Sprite cache keyed by palette identity. The first time a palette is seen
+// we render one sprite per colour; subsequent renderers reusing the same
+// palette skip the work entirely.
+const spriteCache = new WeakMap<
+  ReadonlyArray<readonly [number, number, number]>,
+  HTMLCanvasElement[]
+>();
+function getSprites(
+  palette: ReadonlyArray<readonly [number, number, number]>,
+): HTMLCanvasElement[] {
+  let sprites = spriteCache.get(palette);
+  if (!sprites) {
+    sprites = palette.map((rgb) => buildBlobSprite(rgb));
+    spriteCache.set(palette, sprites);
+  }
+  return sprites;
 }
 
 export interface LiquidAuroraRenderer {
@@ -108,7 +181,17 @@ export interface LiquidAuroraRenderer {
   setup: (frame: Omit<CanvasFrameContext, 'time' | 'delta'>) => void;
 }
 
-export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
+export function createLiquidAuroraRenderer(
+  seed: number,
+  options: LiquidAuroraOptions = {},
+): LiquidAuroraRenderer {
+  const palette = resolvePalette(options.palette);
+  const speedMult = Math.max(0, options.speed ?? 1);
+  const scaleMult = Math.max(0.1, options.blobScale ?? 1);
+  const showVignette = options.vignette !== false;
+  const blobCountOverride = options.blobCount;
+
+  let sprites: HTMLCanvasElement[] = [];
   let blobs: Blob[] = [];
   // Cached background (gradient is identical every frame).
   let cachedBg: HTMLCanvasElement | null = null;
@@ -124,9 +207,13 @@ export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
     const srand = createPrng(seed);
 
     // 6 blobs on desktop, 4 on small viewports — keeps mobile snappy and
-    // less visually busy on tiny canvases.
+    // less visually busy on tiny canvases. Caller can override via `blobCount`.
     const isSmall = Math.min(width, height) < 480;
-    const blobCount = isSmall ? 4 : 6;
+    const defaultCount = isSmall ? 4 : 6;
+    const blobCount = Math.max(
+      1,
+      Math.floor(blobCountOverride ?? defaultCount),
+    );
     const minDim = Math.min(width, height);
 
     // Seed positions on a loose grid so we get even coverage, then jitter.
@@ -169,7 +256,7 @@ export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
         // perceptible alone, but combined with the breathing scale it makes
         // the silhouette feel alive.
         rotationSpeed: (srand() < 0.5 ? -1 : 1) * (0.02 + srand() * 0.03),
-        paletteIndex: Math.floor(srand() * AURORA_PALETTE.length),
+        paletteIndex: Math.floor(srand() * palette.length),
         // Alpha range chosen so 2–3 overlapping blobs cleanly bloom toward
         // their mixed color without any single one looking like a hotspot.
         alpha: 0.5 + srand() * 0.3,
@@ -214,7 +301,7 @@ export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
     height: number,
     time: number,
   ) => {
-    if (!blobSprites) return;
+    if (sprites.length === 0) return;
     ctx.save();
     // 'screen' is the secret: 1 - (1-a)*(1-b) — bright where blobs overlap,
     // dark elsewhere. Unlike 'lighter' it tops out at 1, so we don't blow
@@ -222,7 +309,7 @@ export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
     ctx.globalCompositeOperation = 'screen';
 
     for (const b of blobs) {
-      const sprite = blobSprites[b.paletteIndex];
+      const sprite = sprites[b.paletteIndex];
       if (!sprite) continue;
 
       const cx =
@@ -232,6 +319,7 @@ export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
 
       const r =
         b.baseRadius *
+        scaleMult *
         (1 + Math.sin(time * b.breathFreq + b.breathPhase) * b.breathAmp);
 
       const sx =
@@ -281,7 +369,7 @@ export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
 
   return {
     setup({ width, height, dpr }) {
-      ensureSprites();
+      sprites = getSprites(palette);
       buildScene(width, height);
       bakeBackground(width, height, dpr);
     },
@@ -303,11 +391,11 @@ export function createLiquidAuroraRenderer(seed: number): LiquidAuroraRenderer {
       }
 
       // Reduced motion → freeze time so the composition is still beautiful
-      // but completely static. No early-return: we still want the colors.
-      const t = reducedMotion ? 0 : time;
+      // but completely static. The `speed` option scales motion otherwise.
+      const t = reducedMotion ? 0 : time * speedMult;
       drawBlobs(ctx, width, height, t);
 
-      drawVignette(ctx, width, height);
+      if (showVignette) drawVignette(ctx, width, height);
     },
   };
 }

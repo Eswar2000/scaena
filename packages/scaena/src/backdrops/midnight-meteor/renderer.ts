@@ -203,6 +203,9 @@ export interface MeteorRenderer {
   setup: (frame: Omit<CanvasFrameContext, 'time' | 'delta'>) => void;
 }
 
+// biome-ignore lint/complexity/noBannedTypes: deliberate placeholder — will gain keys later
+export interface MidnightMeteorOptions {}
+
 export function createMidnightMeteorRenderer(seed: number): MeteorRenderer {
   // Two independent PRNGs:
   //   - `rand` (stateful) drives transient stuff: meteor spawn properties, timing.

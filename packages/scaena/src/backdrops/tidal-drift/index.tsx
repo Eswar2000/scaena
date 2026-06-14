@@ -2,6 +2,8 @@ import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
 import { createTidalDriftRenderer } from './renderer';
 
+export type { TidalDriftOptions } from './renderer';
+
 export interface TidalDriftProps {
   seed?: number;
   className?: string;

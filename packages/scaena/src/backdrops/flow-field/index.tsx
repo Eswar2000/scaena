@@ -2,6 +2,8 @@ import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
 import { createFlowFieldRenderer } from './renderer';
 
+export type { FlowFieldOptions } from './renderer';
+
 export interface FlowFieldProps {
   seed?: number;
   className?: string;

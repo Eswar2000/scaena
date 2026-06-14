@@ -86,6 +86,9 @@ interface TerrainPhases {
   p3: number;
 }
 
+// biome-ignore lint/complexity/noBannedTypes: deliberate placeholder — will gain keys later
+export interface WireMesaOptions {}
+
 export function createWireMesaRenderer(seed: number) {
   const rand = createPrng(seed);
   const phases: TerrainPhases = {
@@ -340,11 +343,13 @@ export function createWireMesaRenderer(seed: number) {
           started = false;
           continue;
         }
+        const x = vx[idx] as number;
+        const y = vy[idx] as number;
         if (!started) {
-          path.moveTo(vx[idx], vy[idx]);
+          path.moveTo(x, y);
           started = true;
         } else {
-          path.lineTo(vx[idx], vy[idx]);
+          path.lineTo(x, y);
         }
       }
     }
@@ -355,12 +360,14 @@ export function createWireMesaRenderer(seed: number) {
         const a = r * COLS + c;
         const bIdx = (r + 1) * COLS + c;
         if (!valid[a] || !valid[bIdx]) continue;
-        const midDist = (vd[a] + vd[bIdx]) * 0.5;
+        const da = vd[a] as number;
+        const db = vd[bIdx] as number;
+        const midDist = (da + db) * 0.5;
         const bucket = colBucketFor(midDist);
         if (bucket < 0) continue;
         const path = colPaths[bucket] as Path2D;
-        path.moveTo(vx[a], vy[a]);
-        path.lineTo(vx[bIdx], vy[bIdx]);
+        path.moveTo(vx[a] as number, vy[a] as number);
+        path.lineTo(vx[bIdx] as number, vy[bIdx] as number);
       }
     }
 

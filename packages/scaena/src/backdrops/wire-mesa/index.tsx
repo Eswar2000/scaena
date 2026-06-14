@@ -2,6 +2,8 @@ import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
 import { createWireMesaRenderer } from './renderer';
 
+export type { WireMesaOptions } from './renderer';
+
 export interface WireMesaProps {
   seed?: number;
   className?: string;

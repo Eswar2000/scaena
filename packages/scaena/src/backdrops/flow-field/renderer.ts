@@ -68,6 +68,9 @@ interface FieldPhases {
   d: number;
 }
 
+// biome-ignore lint/complexity/noBannedTypes: deliberate placeholder — will gain keys later
+export interface FlowFieldOptions {}
+
 export function createFlowFieldRenderer(seed: number) {
   const rand = createPrng(seed);
 

@@ -2,6 +2,8 @@ import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
 import { createMidnightMeteorRenderer } from './renderer';
 
+export type { MidnightMeteorOptions } from './renderer';
+
 export interface MidnightMeteorProps {
   seed?: number;
   className?: string;
