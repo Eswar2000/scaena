@@ -132,11 +132,72 @@ original out-of-the-box look.
 />
 ```
 
-### Other backdrops
+### `midnight-meteor`
 
-`midnight-meteor`, `tidal-drift`, `wire-mesa`, and `flow-field` accept the
-common props above but **don't yet expose any options** — pass `props={{}}`
-or simply omit it. Customization for these is on the roadmap.
+| option | type | default | notes |
+| --- | --- | --- | --- |
+| `sky` | `'midnight' \| 'abyss' \| 'storm'` | `'midnight'` | background gradient + nebula color preset |
+| `starDensity` | `number` | `1` | star-count multiplier (clamped against canvas area) |
+| `meteorRate` | `number` | `1` | meteor spawn-rate multiplier — `0` disables new meteors |
+| `nebula` | `boolean` | `true` | drifting nebula clouds |
+| `vignette` | `boolean` | `true` | dark radial fade around the edges |
+
+```tsx
+<Backdrop
+  name="midnight-meteor"
+  props={{ sky: 'abyss', starDensity: 1.5, meteorRate: 1.8 }}
+/>
+```
+
+### `tidal-drift`
+
+| option | type | default | notes |
+| --- | --- | --- | --- |
+| `palette` | `'atlantic' \| 'tropical' \| 'storm'` | `'atlantic'` | ocean color preset |
+| `waveSpeed` | `number` | `1` | wave animation speed multiplier |
+| `cloudOpacity` | `number` | `1` | cloud opacity multiplier — `0` hides them |
+| `vignette` | `boolean` | `true` | dark radial fade around the edges |
+
+```tsx
+<Backdrop
+  name="tidal-drift"
+  props={{ palette: 'tropical', waveSpeed: 1.3, cloudOpacity: 0.6 }}
+/>
+```
+
+### `wire-mesa`
+
+| option | type | default | notes |
+| --- | --- | --- | --- |
+| `palette` | `'cyan' \| 'crimson' \| 'mint'` | `'cyan'` | grid + horizon glow color preset |
+| `scrollSpeed` | `number` | `1` | terrain scroll-speed multiplier |
+| `terrainHeight` | `number` | `1` | vertical amplitude of the mountains |
+| `fogDistance` | `number` | `1` | how far fog reaches — lower = closer horizon |
+| `cameraBob` | `boolean` | `true` | subtle vertical bob of the camera |
+
+```tsx
+<Backdrop
+  name="wire-mesa"
+  props={{ palette: 'crimson', terrainHeight: 1.4, fogDistance: 1.3 }}
+/>
+```
+
+### `flow-field`
+
+| option | type | default | notes |
+| --- | --- | --- | --- |
+| `palette` | `'aurora' \| 'inferno' \| 'ocean'` | `'aurora'` | particle ink palette |
+| `particleCount` | `number` | `2400` | total particles in the field |
+| `speed` | `number` | `1` | particle speed multiplier |
+| `trailLength` | `number` | `0.5` | trail persistence — `0` snappy, `1` very long |
+| `lineWidth` | `number` | `1.05` | stroke width in CSS pixels |
+
+```tsx
+<Backdrop
+  name="flow-field"
+  props={{ palette: 'ocean', particleCount: 3500, trailLength: 0.8 }}
+/>
+```
 
 ## Built-in respect
 

@@ -19,36 +19,68 @@ import type { CanvasFrameContext } from '../../lib/useCanvas';
  * exactly the feel ink-in-water has anyway.
  * ───────────────────────────────────────────────────────────────────────── */
 
-const PARTICLE_COUNT = 2400;
+const DEFAULT_PARTICLE_COUNT = 2400;
 
 /* ── Field ── */
 const ANGLE_TURNS = 1.5; // how many full rotations across the field's [-1,1] output
 const FIELD_TIME_SCALE = 1.0; // multiplier on time passed into the field
 
 /* ── Particle motion ── */
-const SPEED_BASE = 28; // CSS px / sec
+const DEFAULT_SPEED_BASE = 28; // CSS px / sec
 const SPEED_VARIANCE = 12; // +/- per particle
 const LIFETIME_MIN = 3.0;
 const LIFETIME_MAX = 9.0;
 
 /* ── Trail look ── */
-const FADE_ALPHA_CENTER = 0.045; // per-frame fade strength at canvas centre (lower = longer trails)
+const DEFAULT_FADE_ALPHA_CENTER = 0.045; // per-frame fade strength at canvas centre (lower = longer trails)
 const FADE_ALPHA_EDGE = 0.44; // per-frame fade strength at the very edge (higher = harder edge vignette)
 const EDGE_MARGIN = 90; // px past the canvas a particle can drift before being respawned in the interior
 const BG_FADE_RGB = '6, 8, 20';
-const LINE_WIDTH = 1.05;
+const DEFAULT_LINE_WIDTH = 1.05;
 
 /* ── Palette ── */
 const BG_BASE = '#04050d'; // initial canvas wash before any particles
-// Five tones — cool dominant with two warm accents for life.
-const PALETTE: Array<[number, number, number]> = [
-  [120, 220, 255], // cyan
-  [180, 130, 255], // violet
-  [255, 235, 200], // warm white
-  [255, 130, 200], // pink
-  [110, 255, 210], // mint
-];
-const PALETTE_ALPHAS = [0.55, 0.5, 0.7, 0.45, 0.5];
+
+/** Named ink palettes. Each preset bundles RGB stops + their per-stroke alphas. */
+interface InkPalette {
+  colors: ReadonlyArray<[number, number, number]>;
+  alphas: ReadonlyArray<number>;
+}
+const INK_PALETTES: Record<'aurora' | 'inferno' | 'ocean', InkPalette> = {
+  aurora: {
+    // Default — cool dominant with two warm accents for life.
+    colors: [
+      [120, 220, 255], // cyan
+      [180, 130, 255], // violet
+      [255, 235, 200], // warm white
+      [255, 130, 200], // pink
+      [110, 255, 210], // mint
+    ],
+    alphas: [0.55, 0.5, 0.7, 0.45, 0.5],
+  },
+  inferno: {
+    // Coal-to-ember warm palette — deep red, orange, gold, peach, hot pink.
+    colors: [
+      [255, 120, 60],
+      [255, 80, 100],
+      [255, 200, 90],
+      [255, 230, 180],
+      [255, 60, 160],
+    ],
+    alphas: [0.55, 0.5, 0.65, 0.7, 0.45],
+  },
+  ocean: {
+    // All-cool blues, teals, and soft greens — like deep current trails.
+    colors: [
+      [80, 180, 230],
+      [60, 220, 200],
+      [120, 240, 255],
+      [40, 100, 200],
+      [180, 250, 240],
+    ],
+    alphas: [0.55, 0.5, 0.65, 0.45, 0.5],
+  },
+};
 
 interface Particle {
   x: number;
@@ -68,11 +100,31 @@ interface FieldPhases {
   d: number;
 }
 
-// biome-ignore lint/complexity/noBannedTypes: deliberate placeholder — will gain keys later
-export interface FlowFieldOptions {}
+export interface FlowFieldOptions {
+  /** Ink palette. Default `'aurora'`. */
+  palette?: 'aurora' | 'inferno' | 'ocean';
+  /** Total particle count. Default 2400. */
+  particleCount?: number;
+  /** Particle speed multiplier. Default 1. */
+  speed?: number;
+  /** Trail persistence (0 = snappy, 1 = very long). Default 0.5. */
+  trailLength?: number;
+  /** Stroke width in CSS px. Default 1.05. */
+  lineWidth?: number;
+}
 
-export function createFlowFieldRenderer(seed: number) {
+export function createFlowFieldRenderer(seed: number, options: FlowFieldOptions = {}) {
   const rand = createPrng(seed);
+
+  const palette = INK_PALETTES[options.palette ?? 'aurora'] ?? INK_PALETTES.aurora;
+  const particleCount = Math.max(50, Math.round(options.particleCount ?? DEFAULT_PARTICLE_COUNT));
+  const speedMult = Math.max(0, options.speed ?? 1);
+  // Map user-facing trail length (0 longer = longer trails) to internal fade alpha.
+  // Default 0.5 → fade ≈ DEFAULT_FADE_ALPHA_CENTER for back-compat with the original look.
+  const trailLength = Math.min(1, Math.max(0, options.trailLength ?? 0.5));
+  const fadeAlphaCenter = Math.max(0.004, DEFAULT_FADE_ALPHA_CENTER * (1.4 - trailLength * 1.8));
+  const fadeAlphaEdge = Math.max(fadeAlphaCenter, FADE_ALPHA_EDGE * (1.2 - trailLength * 0.6));
+  const lineWidth = Math.max(0.2, options.lineWidth ?? DEFAULT_LINE_WIDTH);
 
   // Fixed phase offsets so seeded layouts are reproducible and each instance
   // gets a slightly different field shape.
@@ -110,8 +162,9 @@ export function createFlowFieldRenderer(seed: number) {
     p.prevY = y;
     p.age = 0;
     p.lifetime = LIFETIME_MIN + rand() * (LIFETIME_MAX - LIFETIME_MIN);
-    p.speed = SPEED_BASE + (rand() * 2 - 1) * SPEED_VARIANCE;
-    p.colorIdx = Math.floor(rand() * PALETTE.length);
+    // Per-particle speed varies around the base; whole pool then scaled by speedMult.
+    p.speed = (DEFAULT_SPEED_BASE + (rand() * 2 - 1) * SPEED_VARIANCE) * speedMult;
+    p.colorIdx = Math.floor(rand() * palette.colors.length);
   }
 
   /** Pick a respawn coordinate distributed across the full canvas with a
@@ -141,7 +194,7 @@ export function createFlowFieldRenderer(seed: number) {
       y: 0,
       prevX: 0,
       prevY: 0,
-      speed: SPEED_BASE,
+      speed: DEFAULT_SPEED_BASE,
       age: 0,
       lifetime: LIFETIME_MIN,
       colorIdx: 0,
@@ -158,7 +211,7 @@ export function createFlowFieldRenderer(seed: number) {
     primed = false;
     bakeFadeSprite();
     particles.length = 0;
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
+    for (let i = 0; i < particleCount; i++) {
       particles.push(newRandomParticle());
     }
   }
@@ -177,9 +230,9 @@ export function createFlowFieldRenderer(seed: number) {
     const cy = cssH * 0.5;
     const cornerR = Math.hypot(cssW * 0.5, cssH * 0.5);
     const grad = g.createRadialGradient(cx, cy, 0, cx, cy, cornerR);
-    grad.addColorStop(0, `rgba(${BG_FADE_RGB}, ${FADE_ALPHA_CENTER})`);
-    grad.addColorStop(0.55, `rgba(${BG_FADE_RGB}, ${(FADE_ALPHA_CENTER * 1.4).toFixed(3)})`);
-    grad.addColorStop(1, `rgba(${BG_FADE_RGB}, ${FADE_ALPHA_EDGE})`);
+    grad.addColorStop(0, `rgba(${BG_FADE_RGB}, ${fadeAlphaCenter})`);
+    grad.addColorStop(0.55, `rgba(${BG_FADE_RGB}, ${(fadeAlphaCenter * 1.4).toFixed(3)})`);
+    grad.addColorStop(1, `rgba(${BG_FADE_RGB}, ${fadeAlphaEdge})`);
     g.fillStyle = grad;
     g.fillRect(0, 0, cssW, cssH);
   }
@@ -201,7 +254,7 @@ export function createFlowFieldRenderer(seed: number) {
     if (fadeSprite) {
       ctx.drawImage(fadeSprite, 0, 0, cssW, cssH);
     } else {
-      ctx.fillStyle = `rgba(${BG_FADE_RGB}, ${FADE_ALPHA_CENTER})`;
+      ctx.fillStyle = `rgba(${BG_FADE_RGB}, ${fadeAlphaCenter})`;
       ctx.fillRect(0, 0, cssW, cssH);
     }
 
@@ -209,7 +262,7 @@ export function createFlowFieldRenderer(seed: number) {
       // No motion: draw each particle as a single dim dot at its initial pos.
       ctx.globalCompositeOperation = 'lighter';
       for (const p of particles) {
-        const col = PALETTE[p.colorIdx] as [number, number, number];
+        const col = palette.colors[p.colorIdx] as [number, number, number];
         ctx.fillStyle = `rgba(${col[0]}, ${col[1]}, ${col[2]}, 0.35)`;
         ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
       }
@@ -217,10 +270,10 @@ export function createFlowFieldRenderer(seed: number) {
       return;
     }
 
-    // Build one Path2D per palette colour so we can batch into PALETTE.length
+    // Build one Path2D per palette colour so we can batch into palette.colors.length
     // strokes regardless of particle count.
-    const paths: Path2D[] = new Array(PALETTE.length);
-    for (let i = 0; i < PALETTE.length; i++) paths[i] = new Path2D();
+    const paths: Path2D[] = new Array(palette.colors.length);
+    for (let i = 0; i < palette.colors.length; i++) paths[i] = new Path2D();
 
     const dt = Math.min(delta, 0.05); // safety clamp during long frame stalls
 
@@ -265,10 +318,10 @@ export function createFlowFieldRenderer(seed: number) {
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = LINE_WIDTH;
-    for (let i = 0; i < PALETTE.length; i++) {
-      const col = PALETTE[i] as [number, number, number];
-      const alpha = PALETTE_ALPHAS[i] as number;
+    ctx.lineWidth = lineWidth;
+    for (let i = 0; i < palette.colors.length; i++) {
+      const col = palette.colors[i] as [number, number, number];
+      const alpha = palette.alphas[i] ?? 0.5;
       ctx.strokeStyle = `rgba(${col[0]}, ${col[1]}, ${col[2]}, ${alpha.toFixed(3)})`;
       ctx.stroke(paths[i] as Path2D);
     }

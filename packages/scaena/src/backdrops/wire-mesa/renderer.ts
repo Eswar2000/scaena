@@ -72,6 +72,37 @@ const GRID_FAR_RGB: [number, number, number] = [55, 110, 175];
 const HORIZON_GLOW_CYAN = '110, 200, 255';
 const HORIZON_GLOW_VIOLET = '170, 90, 220';
 
+/** Named grid palettes. Picks both the near/far line colours AND the horizon
+ *  glow tints so each preset reads cohesively. */
+interface GridPalette {
+  gridNear: [number, number, number];
+  gridFar: [number, number, number];
+  glowMain: string;
+  glowAccent: string;
+}
+const GRID_PALETTES: Record<'cyan' | 'crimson' | 'mint', GridPalette> = {
+  cyan: {
+    gridNear: GRID_NEAR_RGB,
+    gridFar: GRID_FAR_RGB,
+    glowMain: HORIZON_GLOW_CYAN,
+    glowAccent: HORIZON_GLOW_VIOLET,
+  },
+  crimson: {
+    // Tron-meets-sunset — hot magenta-amber horizon with a deep crimson grid.
+    gridNear: [255, 180, 200],
+    gridFar: [170, 60, 90],
+    glowMain: '255, 130, 90',
+    glowAccent: '255, 60, 140',
+  },
+  mint: {
+    // Cool jade matrix — deep teal grid with a soft mint horizon haze.
+    gridNear: [160, 255, 220],
+    gridFar: [40, 130, 110],
+    glowMain: '120, 230, 200',
+    glowAccent: '60, 180, 200',
+  },
+};
+
 /* ── Alpha buckets (column segments only) ──
  * Column SEGMENTS are bucketed because there are hundreds of them — fewer
  * stroke calls means tighter perf. Rows are stroked individually with their
@@ -86,10 +117,28 @@ interface TerrainPhases {
   p3: number;
 }
 
-// biome-ignore lint/complexity/noBannedTypes: deliberate placeholder — will gain keys later
-export interface WireMesaOptions {}
+export interface WireMesaOptions {
+  /** Grid colour preset (line tints + matching horizon glow). */
+  palette?: 'cyan' | 'crimson' | 'mint';
+  /** Forward-flight speed multiplier. 0 = parked. Default 1. */
+  scrollSpeed?: number;
+  /** Terrain height multiplier. Lower = gentler hills. Default 1. */
+  terrainHeight?: number;
+  /** Fog far-distance multiplier. Higher = see further into the haze. Default 1. */
+  fogDistance?: number;
+  /** Gentle vertical camera bob. Default true. */
+  cameraBob?: boolean;
+}
 
-export function createWireMesaRenderer(seed: number) {
+export function createWireMesaRenderer(seed: number, options: WireMesaOptions = {}) {
+  const palette = GRID_PALETTES[options.palette ?? 'cyan'] ?? GRID_PALETTES.cyan;
+  const scrollMult = Math.max(0, options.scrollSpeed ?? 1);
+  const heightMult = Math.max(0.05, options.terrainHeight ?? 1);
+  const fogMult = Math.max(0.2, options.fogDistance ?? 1);
+  // Fog far distance scales with the multiplier; near stays put so foreground
+  // crispness is preserved while haze pushes out into the distance.
+  const fogFar = FOG_FAR * fogMult;
+  const showBob = options.cameraBob ?? true;
   const rand = createPrng(seed);
   const phases: TerrainPhases = {
     p0: rand() * Math.PI * 2,
@@ -126,7 +175,7 @@ export function createWireMesaRenderer(seed: number) {
     const zBand = 0.55 + 0.45 * Math.sin(z * 0.08 + phases.p3);
     // Mountains grow taller in the distance (foreground stays gentler)
     const distScale = 0.4 + 0.6 * Math.min(1, z / 18);
-    return ((ridgeA * 0.95 + ridgeB * 0.55) * zBand + detail) * distScale * HEIGHT_SCALE;
+    return ((ridgeA * 0.95 + ridgeB * 0.55) * zBand + detail) * distScale * HEIGHT_SCALE * heightMult;
   }
 
   function bakeBackground(): void {
@@ -154,13 +203,13 @@ export function createWireMesaRenderer(seed: number) {
     // Horizon glow band — soft cyan halo across the seam
     const glowH = Math.max(40, cssH * 0.09);
     const glow = g.createLinearGradient(0, horizonY - glowH * 0.5, 0, horizonY + glowH * 0.5);
-    glow.addColorStop(0, `rgba(${HORIZON_GLOW_CYAN}, 0)`);
-    glow.addColorStop(0.5, `rgba(${HORIZON_GLOW_CYAN}, 0.32)`);
-    glow.addColorStop(1, `rgba(${HORIZON_GLOW_CYAN}, 0)`);
+    glow.addColorStop(0, `rgba(${palette.glowMain}, 0)`);
+    glow.addColorStop(0.5, `rgba(${palette.glowMain}, 0.32)`);
+    glow.addColorStop(1, `rgba(${palette.glowMain}, 0)`);
     g.fillStyle = glow;
     g.fillRect(0, horizonY - glowH * 0.5, cssW, glowH);
 
-    // Wide violet radial at the horizon for color depth (additive)
+    // Wide accent radial at the horizon for color depth (additive)
     const radial = g.createRadialGradient(
       cssW / 2,
       horizonY,
@@ -169,9 +218,9 @@ export function createWireMesaRenderer(seed: number) {
       horizonY,
       cssW * 0.65,
     );
-    radial.addColorStop(0, `rgba(${HORIZON_GLOW_VIOLET}, 0.12)`);
-    radial.addColorStop(0.5, `rgba(${HORIZON_GLOW_VIOLET}, 0.04)`);
-    radial.addColorStop(1, `rgba(${HORIZON_GLOW_VIOLET}, 0)`);
+    radial.addColorStop(0, `rgba(${palette.glowAccent}, 0.12)`);
+    radial.addColorStop(0.5, `rgba(${palette.glowAccent}, 0.04)`);
+    radial.addColorStop(1, `rgba(${palette.glowAccent}, 0)`);
     g.globalCompositeOperation = 'screen';
     g.fillStyle = radial;
     g.fillRect(0, 0, cssW, cssH);
@@ -226,11 +275,11 @@ export function createWireMesaRenderer(seed: number) {
     return Math.max(CAM_BASE_HEIGHT, peak + CAM_CLEARANCE);
   }
 
-  /** Smooth fog falloff: 1 at FOG_NEAR, 0 at FOG_FAR, ease-out in between. */
+  /** Smooth fog falloff: 1 at FOG_NEAR, 0 at fogFar, ease-out in between. */
   function fogAlpha(z: number): number {
     if (z <= FOG_NEAR) return 1;
-    if (z >= FOG_FAR) return 0;
-    const t = (z - FOG_NEAR) / (FOG_FAR - FOG_NEAR);
+    if (z >= fogFar) return 0;
+    const t = (z - FOG_NEAR) / (fogFar - FOG_NEAR);
     return 1 - t * t;
   }
 
@@ -252,18 +301,18 @@ export function createWireMesaRenderer(seed: number) {
   /** Bucket stroke colour: cool cyan→deep blue gradient along distance. */
   function bucketStrokeColor(bucketIdx: number, alpha: number): string {
     const t = bucketIdx / (COL_BUCKET_COUNT - 1);
-    const r = Math.round(GRID_NEAR_RGB[0] + (GRID_FAR_RGB[0] - GRID_NEAR_RGB[0]) * t);
-    const g = Math.round(GRID_NEAR_RGB[1] + (GRID_FAR_RGB[1] - GRID_NEAR_RGB[1]) * t);
-    const b = Math.round(GRID_NEAR_RGB[2] + (GRID_FAR_RGB[2] - GRID_NEAR_RGB[2]) * t);
+    const r = Math.round(palette.gridNear[0] + (palette.gridFar[0] - palette.gridNear[0]) * t);
+    const g = Math.round(palette.gridNear[1] + (palette.gridFar[1] - palette.gridNear[1]) * t);
+    const b = Math.round(palette.gridNear[2] + (palette.gridFar[2] - palette.gridNear[2]) * t);
     return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
   }
 
   /** Per-row stroke colour with continuous alpha and distance-based RGB blend. */
   function rowStrokeColor(distNorm: number, alpha: number): string {
     const t = Math.min(1, Math.max(0, distNorm));
-    const r = Math.round(GRID_NEAR_RGB[0] + (GRID_FAR_RGB[0] - GRID_NEAR_RGB[0]) * t);
-    const g = Math.round(GRID_NEAR_RGB[1] + (GRID_FAR_RGB[1] - GRID_NEAR_RGB[1]) * t);
-    const b = Math.round(GRID_NEAR_RGB[2] + (GRID_FAR_RGB[2] - GRID_NEAR_RGB[2]) * t);
+    const r = Math.round(palette.gridNear[0] + (palette.gridFar[0] - palette.gridNear[0]) * t);
+    const g = Math.round(palette.gridNear[1] + (palette.gridFar[1] - palette.gridNear[1]) * t);
+    const b = Math.round(palette.gridNear[2] + (palette.gridFar[2] - palette.gridNear[2]) * t);
     return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
   }
 
@@ -274,7 +323,7 @@ export function createWireMesaRenderer(seed: number) {
     // Background blit
     if (bgCache) ctx.drawImage(bgCache, 0, 0, cssW, cssH);
 
-    const scroll = reducedMotion ? 0 : time * SCROLL_SPEED;
+    const scroll = reducedMotion ? 0 : time * SCROLL_SPEED * scrollMult;
 
     // Follow camera: target the local peak + clearance, exp-smoothed toward it.
     // Frame-rate-independent decay: alpha = 1 - exp(-dt / tau).
@@ -285,7 +334,8 @@ export function createWireMesaRenderer(seed: number) {
       const alpha = 1 - Math.exp(-delta / CAM_FOLLOW_TAU);
       camYSmoothed += (targetCamY - camYSmoothed) * alpha;
     }
-    const camY = camYSmoothed + (reducedMotion ? 0 : Math.sin(time * BOB_FREQ * Math.PI * 2) * BOB_AMP);
+    const bob = reducedMotion || !showBob ? 0 : Math.sin(time * BOB_FREQ * Math.PI * 2) * BOB_AMP;
+    const camY = camYSmoothed + bob;
     const scrollFloor = Math.floor(scroll / SPACING) * SPACING;
     const scrollFrac = scroll - scrollFloor;
 
@@ -334,7 +384,7 @@ export function createWireMesaRenderer(seed: number) {
       if (a <= 0) continue;
       rowAlpha[r] = a;
       // Normalised distance ∈ [0,1] across the visible depth, for RGB blend.
-      rowDistNorm[r] = Math.min(1, Math.max(0, (dist - FOG_NEAR) / (FOG_FAR - FOG_NEAR)));
+      rowDistNorm[r] = Math.min(1, Math.max(0, (dist - FOG_NEAR) / (fogFar - FOG_NEAR)));
       const path = rowPaths[r] as Path2D;
       let started = false;
       for (let c = 0; c < COLS; c++) {

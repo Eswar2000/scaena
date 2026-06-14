@@ -1,10 +1,10 @@
 import { useMemo, type CSSProperties } from 'react';
 import { useCanvas } from '../../lib/useCanvas';
-import { createTidalDriftRenderer } from './renderer';
+import { createTidalDriftRenderer, type TidalDriftOptions } from './renderer';
 
 export type { TidalDriftOptions } from './renderer';
 
-export interface TidalDriftProps {
+export interface TidalDriftProps extends TidalDriftOptions {
   seed?: number;
   className?: string;
   style?: CSSProperties;
@@ -24,10 +24,26 @@ const canvasStyle: CSSProperties = {
   height: '100%',
 };
 
-export function TidalDrift({ seed, className, style }: TidalDriftProps) {
+export function TidalDrift({
+  seed,
+  className,
+  style,
+  palette,
+  waveSpeed,
+  cloudOpacity,
+  vignette,
+}: TidalDriftProps) {
   const renderer = useMemo(
-    () => createTidalDriftRenderer(seed ?? Math.floor(Math.random() * 2 ** 31)),
-    [seed],
+    () =>
+      createTidalDriftRenderer(seed ?? Math.floor(Math.random() * 2 ** 31), {
+        palette,
+        waveSpeed,
+        cloudOpacity,
+        vignette,
+      }),
+    // Background gradient stops and sprite caches are keyed on the resolved
+    // options, so a rebuild is required when any of them change.
+    [seed, palette, waveSpeed, cloudOpacity, vignette],
   );
 
   const canvasRef = useCanvas({
